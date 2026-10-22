@@ -1,3 +1,6 @@
 # local secrets and dependencies (never commit)
 .env
 node_modules/
+
+# runtime state (ingest registry, attempts, review)
+.state/
