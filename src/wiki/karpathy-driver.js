@@ -19,18 +19,22 @@ function envNumber(name, fallback) {
 
 export const DEFAULT_INGEST_TIMEOUT_MS = envNumber("OBSIDIAN_INGEST_TIMEOUT_MS", 15 * 60 * 1000);
 export const DEFAULT_INGEST_POLL_INTERVAL_MS = envNumber("OBSIDIAN_INGEST_POLL_INTERVAL_MS", 10000);
+// After the first new page appears, wait this long for late concept/entity pages
+// to finish before declaring the compile complete.
+export const DEFAULT_INGEST_SETTLE_MS = envNumber("OBSIDIAN_INGEST_SETTLE_MS", 60000);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class KarpathyDriver {
-  constructor({ adapter, mcp, pollIntervalMs = DEFAULT_INGEST_POLL_INTERVAL_MS, timeoutMs = DEFAULT_INGEST_TIMEOUT_MS } = {}) {
+  constructor({ adapter, mcp, pollIntervalMs = DEFAULT_INGEST_POLL_INTERVAL_MS, timeoutMs = DEFAULT_INGEST_TIMEOUT_MS, settleMs = DEFAULT_INGEST_SETTLE_MS } = {}) {
     if (!adapter || !mcp) throw new Error("KarpathyDriver: adapter and mcp are required");
     this.adapter = adapter;
     this.mcp = mcp;
     this.pollIntervalMs = pollIntervalMs;
     this.timeoutMs = timeoutMs;
+    this.settleMs = settleMs;
   }
 
   // Snapshot current files in the three wiki output directories.
@@ -74,7 +78,9 @@ export class KarpathyDriver {
   }
 
   // Block until new wiki pages appear after an ingest, or until timeout.
-  async waitForIngest({ snapshot, timeoutMs = this.timeoutMs, pollIntervalMs = this.pollIntervalMs } = {}) {
+  // Once the first new page shows up, keep polling for settleMs to also catch
+  // concept/entity pages that finish later, so the report is complete.
+  async waitForIngest({ snapshot, timeoutMs = this.timeoutMs, pollIntervalMs = this.pollIntervalMs, settleMs = this.settleMs } = {}) {
     const before = snapshot ?? (await this.snapshotWiki());
     const deadline = Date.now() + timeoutMs;
     const startedAt = Date.now();
@@ -82,7 +88,10 @@ export class KarpathyDriver {
       const after = await this.snapshotWiki();
       const created = this._diff(before, after);
       if (created.sources.length > 0 || created.concepts.length > 0 || created.entities.length > 0) {
-        return { created, elapsedMs: Date.now() - startedAt };
+        // Wait out the settle window so late-generated pages are included.
+        await sleep(settleMs);
+        const final = await this.snapshotWiki();
+        return { created: this._diff(before, final), elapsedMs: Date.now() - startedAt };
       }
       await sleep(pollIntervalMs);
     }

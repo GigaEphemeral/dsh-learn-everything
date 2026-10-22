@@ -8,7 +8,8 @@
 //   OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <local-markdown-path> --auto-yes
 
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ObsidianClient, ObsidianAdapter } from "../src/obsidian/obsidian-adapter.js";
 import { McpClient } from "../src/obsidian/mcp-client.js";
 import { KarpathyDriver } from "../src/wiki/karpathy-driver.js";
@@ -20,7 +21,7 @@ import { fetchUrl, readLocalFile, normalizeSource } from "../src/ingest/source-f
 const apiKey = process.env.OBSIDIAN_API_KEY;
 const target = process.argv[2];
 const autoYes = process.argv.includes("--auto-yes");
-const stateDir = process.env.OBSIDIAN_STATE_DIR ?? "code/.state";
+// State dir resolves relative to this script (code/scripts -> code/.state),
 if (!apiKey || !target) {
   console.error("usage: OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <url|local-md> [--auto-yes]");
   process.exit(1);

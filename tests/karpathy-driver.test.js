@@ -3,10 +3,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { KarpathyDriver } from "../src/wiki/karpathy-driver.js";
 
-function makeDriver({ listImpl, pollIntervalMs = 5, timeoutMs = 500 }) {
+function makeDriver({ listImpl, pollIntervalMs = 5, timeoutMs = 500, settleMs = 2 }) {
   const adapter = { list: async (dir) => ({ files: listImpl(dir) }) };
   const mcp = { tool: async () => "{\"message\":\"OK\"}" };
-  return new KarpathyDriver({ adapter, mcp, pollIntervalMs, timeoutMs });
+  return new KarpathyDriver({ adapter, mcp, pollIntervalMs, timeoutMs, settleMs });
 }
 
 test("diff reports created pages per directory", () => {
