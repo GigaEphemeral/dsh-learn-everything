@@ -2,7 +2,7 @@
 // Skipped unless OBSIDIAN_API_KEY is set. Uses a temp folder cleaned up at the end.
 import { test, suite } from "node:test";
 import assert from "node:assert/strict";
-import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian-adapter.js";
+import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 
 const apiKey = process.env.OBSIDIAN_API_KEY;
 const baseUrl = process.env.OBSIDIAN_BASE_URL ?? "https://127.0.0.1:27124";

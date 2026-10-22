@@ -1,7 +1,7 @@
 // Unit tests for vault-relative path validation.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertVaultPath, encodeVaultPath, VaultPathError } from "../src/vault-path.js";
+import { assertVaultPath, encodeVaultPath, VaultPathError } from "../src/obsidian/vault-path.js";
 
 test("accepts a normal nested path", () => {
   assert.equal(assertVaultPath("Learning/Plans/a.md"), "Learning/Plans/a.md");

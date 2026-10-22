@@ -1,7 +1,7 @@
 // Unit tests for the adapter with a stubbed client (no network).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ObsidianAdapter, ObsidianError, VaultPathError } from "../src/obsidian-adapter.js";
+import { ObsidianAdapter, ObsidianError, VaultPathError } from "../src/obsidian/obsidian-adapter.js";
 
 function stubClient(impl) {
   return { request: async (...args) => impl(...args) };
