@@ -1,0 +1,3 @@
+# local secrets and dependencies (never commit)
+.env
+node_modules/

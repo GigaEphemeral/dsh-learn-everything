@@ -1,0 +1,12 @@
+{
+  "name": "obsidian-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Unified Obsidian vault access adapter for the DSH learning system (P1).",
+  "scripts": {
+    "test": "node --test tests/",
+    "test:live": "node --test tests/integration-live.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
