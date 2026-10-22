@@ -50,6 +50,7 @@ try {
 }
 
 const questions = await loadQuestions(adapter);
+const askCount = Math.min(count, questions.length);
 console.log("question bank:", questions.length, "questions");
 if (questions.length === 0) {
   console.log("no questions yet; create one with scripts/create-question-cli.mjs");
@@ -65,7 +66,7 @@ for (const q of questions) {
 const ranked = questions
   .map((q) => ({ q, score: scheduler.score(q.id, { attemptedCount: attemptsByQuestion[q.id] ?? 0, topicCount: questions.length }) }))
   .sort((a, b) => b.score - a.score)
-  .slice(0, count);
+  .slice(0, askCount);
 
 // Line queue: works with both interactive terminals and piped input,
 // which readline's rl.question races on (a piped second line can be lost).
