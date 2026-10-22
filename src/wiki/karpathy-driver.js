@@ -8,12 +8,24 @@ import { ObsidianError } from "../obsidian/obsidian-adapter.js";
 const WIKI_DIRS = ["wiki/sources", "wiki/concepts", "wiki/entities"];
 export const INGEST_ACTIVE_FILE = "karpathywiki:ingest-active-file";
 
+// Environment-driven defaults so each user can tune the wait without editing code.
+// Documented in .env.example; constructor options always take precedence.
+function envNumber(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+export const DEFAULT_INGEST_TIMEOUT_MS = envNumber("OBSIDIAN_INGEST_TIMEOUT_MS", 15 * 60 * 1000);
+export const DEFAULT_INGEST_POLL_INTERVAL_MS = envNumber("OBSIDIAN_INGEST_POLL_INTERVAL_MS", 10000);
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class KarpathyDriver {
-  constructor({ adapter, mcp, pollIntervalMs = 10000, timeoutMs = 15 * 60 * 1000 } = {}) {
+  constructor({ adapter, mcp, pollIntervalMs = DEFAULT_INGEST_POLL_INTERVAL_MS, timeoutMs = DEFAULT_INGEST_TIMEOUT_MS } = {}) {
     if (!adapter || !mcp) throw new Error("KarpathyDriver: adapter and mcp are required");
     this.adapter = adapter;
     this.mcp = mcp;
