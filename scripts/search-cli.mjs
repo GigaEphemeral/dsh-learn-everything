@@ -1,0 +1,29 @@
+// Search CLI (P4 /知识检索): classify intent, retrieve, show evidence.
+// Usage: OBSIDIAN_API_KEY=... node scripts/search-cli.mjs <query>
+
+import { ObsidianClient, ObsidianAdapter } from "../src/obsidian/obsidian-adapter.js";
+import { SearchRetriever } from "../src/search/retriever.js";
+import { classifyIntent } from "../src/search/intent.js";
+
+const apiKey = process.env.OBSIDIAN_API_KEY;
+const query = process.argv.slice(2).join(" ");
+if (!apiKey || !query) {
+  console.error("usage: OBSIDIAN_API_KEY=... node scripts/search-cli.mjs <query>");
+  process.exit(1);
+}
+
+const client = new ObsidianClient({ baseUrl: "https://127.0.0.1:27124", apiKey });
+const adapter = new ObsidianAdapter(client);
+const retriever = new SearchRetriever({ adapter });
+const intent = classifyIntent(query);
+console.log("intent:", intent);
+
+if (intent === "structure") {
+  const structural = await retriever.structural(query);
+  console.log("structural:", JSON.stringify(structural, null, 2));
+  process.exit(0);
+}
+
+const results = await retriever.wikiFirst(query);
+console.log("results:", JSON.stringify(results, null, 2));
+process.exit(0);
