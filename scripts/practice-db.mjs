@@ -7,6 +7,7 @@
 //   node scripts/practice-db.mjs status <questionId>
 //   node scripts/practice-db.mjs backup <absolute-path>
 //   node scripts/practice-db.mjs check
+//   node scripts/practice-db.mjs export
 //
 // `status` prints the 50 most recent attempts newest-first, read through
 // AttemptStore (the store owns attempt ordering and projection).
@@ -24,6 +25,7 @@ import { AttemptStore } from "../lib/src/learning/attempts.js";
 import { QuestionStore } from "../lib/src/learning/questions.js";
 import { ReviewStore } from "../lib/src/learning/review.js";
 import { MasteryStore } from "../lib/src/learning/mastery.js";
+import { buildSnapshot } from "../lib/src/learning/export.js";
 import { resolveStateDir } from "../src/ingest/state-dir.js";
 
 const EXIT_USAGE = 2;
@@ -181,6 +183,9 @@ function planCommand(argv, dbPath) {
   if (command === "check") {
     return { kind: "check" };
   }
+  if (command === "export") {
+    return { kind: "export" };
+  }
   usage(`unknown command "${command}"\n${USAGE}`);
 }
 
@@ -224,6 +229,10 @@ function run(command, ldb, dbPath) {
   }
   if (command.kind === "backup") {
     backup(ldb, dbPath, command.target);
+    return;
+  }
+  if (command.kind === "export") {
+    console.log(JSON.stringify(buildSnapshot(ldb), null, 2));
     return;
   }
   const integrity = ldb.db.prepare("PRAGMA integrity_check").get();
