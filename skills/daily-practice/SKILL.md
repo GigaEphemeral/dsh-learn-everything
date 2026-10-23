@@ -15,7 +15,7 @@ DSH 是唯一入口。全程由 LLM 组织：抽节点 → 学习 → 出题 →
 
 1. **随机抽知识节点**：运行
    ```bash
-   node code/scripts/wiki-node-cli.mjs random
+   cd code && node --env-file=.env scripts/wiki-node-cli.mjs random
    ```
    从 wiki 概念/实体/来源页随机返回一个关键词（含其 wiki 页路径与内容）。
 
