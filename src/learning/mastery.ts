@@ -5,20 +5,47 @@
 
 import type { LearningDb } from '../db/client.js';
 
+// Evidence sources allowed to contribute mastery. Kept in sync with the v2
+// CHECK constraint on mastery_history.source.
+export const MASTERY_SOURCES = ['first_answer', 'model_rating', 'correction', 'variant_pass'] as const;
+export type MasterySource = (typeof MASTERY_SOURCES)[number];
+
 export class MasteryStore {
   constructor(private readonly ldb: LearningDb) {}
 
+  // Idempotent concept lookup/creation. Concept names are trimmed only (no case
+  // folding: case differences may be meaningful wiki paths), and an empty name
+  // is rejected instead of creating an anonymous concept.
   ensureConcept(name: string, wikiPath: string | null): number {
-    const existing = this.ldb.db.prepare("SELECT id FROM concepts WHERE name = ?").get(name) as { id: number } | undefined;
-    if (existing) return existing.id;
+    if (typeof name !== 'string' || name.trim() === '') {
+      throw new Error('ensureConcept requires a non-empty concept name');
+    }
+    const normalized = name.trim();
+    // INSERT OR IGNORE makes the create step atomic even with a second writer
+    // (the practice CLI) on the same database; the read-back is checked because
+    // a silently missing row would otherwise surface as a confusing TypeError.
     this.ldb.db
-      .prepare('INSERT INTO concepts (name, wiki_path, created_at) VALUES (?, ?, ?)')
-      .run(name, wikiPath, new Date().toISOString());
-    return (this.ldb.db.prepare("SELECT id FROM concepts WHERE name = ?").get(name) as { id: number }).id;
+      .prepare('INSERT OR IGNORE INTO concepts (name, wiki_path, created_at) VALUES (?, ?, ?)')
+      .run(normalized, wikiPath, new Date().toISOString());
+    const row = this.ldb.db.prepare('SELECT id FROM concepts WHERE name = ?').get(normalized) as { id: number } | undefined;
+    if (!row || typeof row.id !== 'number') {
+      throw new Error(`concept "${normalized}" is missing after insert; database may be inconsistent`);
+    }
+    return row.id;
   }
 
-  // Record an evidence point; level 0..1. source ∈ first_answer|model_rating|correction|variant_pass.
+  // Record an evidence point; level must be a finite number in 0..1 and source
+  // must be one of MASTERY_SOURCES (a single LLM rating can never be arbitrary).
   recordLevel(conceptId: number, level: number, source: string): void {
+    if (typeof level !== 'number' || !Number.isFinite(level)) {
+      throw new Error(`mastery level must be a finite number, got ${String(level)}`);
+    }
+    if (level < 0 || level > 1) {
+      throw new Error(`mastery level must be within 0..1, got ${level}`);
+    }
+    if (!(MASTERY_SOURCES as readonly string[]).includes(source)) {
+      throw new Error(`unknown mastery source "${source}"; expected one of ${MASTERY_SOURCES.join('|')}`);
+    }
     this.ldb.db
       .prepare('INSERT INTO mastery_history (concept_id, level, source, recorded_at) VALUES (?, ?, ?, ?)')
       .run(conceptId, level, source, new Date().toISOString());

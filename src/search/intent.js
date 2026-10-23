@@ -18,6 +18,10 @@ const STRUCTURE_MARKERS = [
 ];
 
 export function classifyIntent(query) {
+  // Guard: a missing, non-string, or blank query carries no intent signal.
+  // Return "combined" (the fallback used when no single intent dominates)
+  // instead of throwing, so one bad input cannot break the whole search CLI.
+  if (typeof query !== "string" || query.trim() === "") return "combined";
   const q = query.toLowerCase();
   const hits = {
     concept: CONCEPT_MARKERS.some((m) => q.includes(m.toLowerCase())),

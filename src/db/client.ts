@@ -4,7 +4,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { migrate, SCHEMA_VERSION } from './schema.js';
+import { migrate } from './schema.js';
 
 export class LearningDb {
   readonly db: DatabaseSync;
@@ -21,8 +21,28 @@ export class LearningDb {
     migrate(this.db);
   }
 
+  // Version actually stored in the database (not the compile-time constant):
+  // this is what integrity/`practice-db check` output must report.
   schemaVersion(): number {
-    return SCHEMA_VERSION;
+    const row = this.db.prepare('SELECT MAX(version) AS version FROM schema_version').get() as { version: number | null } | undefined;
+    return row?.version ?? 0;
+  }
+
+  // Run fn inside an explicit write transaction. Used by multi-store writes
+  // (e.g. PracticeSession.recordAnswer) so a failure rolls every store back.
+  transaction<T>(fn: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE;');
+    let committed = false;
+    try {
+      const result = fn();
+      this.db.exec('COMMIT;');
+      committed = true;
+      return result;
+    } finally {
+      if (!committed) {
+        try { this.db.exec('ROLLBACK;'); } catch { /* transaction already rolled back */ }
+      }
+    }
   }
 
   close(): void {

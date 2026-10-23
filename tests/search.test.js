@@ -12,6 +12,15 @@ test("classifyIntent routes concept / source / structure / combined", () => {
   assert.equal(classifyIntent("间隔重复"), "combined");
 });
 
+test("classifyIntent falls back to combined for missing or blank input", () => {
+  const invalid = [undefined, null, "", "   ", 42];
+  for (const query of invalid) {
+    assert.equal(classifyIntent(query), "combined");
+  }
+  // A blank query must never be classified as a specific intent.
+  assert.equal(classifyIntent(" "), "combined");
+});
+
 test("wikiFirst normalizes results and ranks wiki pages first", async () => {
   const hits = [
     { filename: "notes/a.md", score: 1, matches: [{ context: "aaa" }] },
