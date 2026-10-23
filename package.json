@@ -1,14 +1,38 @@
 {
-  "name": "obsidian-adapter",
+  "name": "dsh-learn-everything",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Unified Obsidian vault access adapter for the DSH learning system (P1).",
+  "description": "DSH + Obsidian 个人知识学习系统插件：连 Obsidian（受控读写/摄入/检索）+ 学习闭环（每日一练/追问）。Complete DSH plugin bundle.",
   "scripts": {
     "test": "node --test tests/vault-path.test.js tests/obsidian-adapter.test.js tests/karpathy-driver.test.js",
     "test:live": "node --test tests/integration-live.test.js"
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "yaml": "^2.4.2"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "skill",
+    "learning",
+    "obsidian"
+  ],
+  "license": "MIT"
 }

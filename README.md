@@ -2,9 +2,9 @@
   <a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
 </p>
 
-# DSH + Obsidian Learning System — Source (code/)
+# DSH + Obsidian Learning System — DSH Plugin (code/)
 
-The runnable source of the DSH + Obsidian personal learning system. It operates the Obsidian vault through the
+The complete **DSH plugin** of the DSH + Obsidian personal learning system. It operates the Obsidian vault through the
 **Local REST API with MCP** plugin, drives **karpathywiki** (LLM Wiki) compilation, and provides three business
 flows: ingest, search, and daily practice. DSH is the single entry point; Obsidian is the authoritative knowledge store.
 
@@ -29,6 +29,14 @@ cp .env.example .env   # fill in OBSIDIAN_API_KEY
 | OBSIDIAN_INGEST_SETTLE_MS | ms to keep waiting after the first new page appears | 60000 |
 | OBSIDIAN_REVIEW_W_OVERDUE / WEAKNESS / COVERAGE / NOVELTY | Daily practice selection weights | 1.0 / 0.8 / 0.5 / 0.3 |
 | OBSIDIAN_STATE_DIR | Runtime state dir (ingest registry, attempts, review) | code/.state |
+
+## DSH plugin structure
+```
+package.json   # dsh.bundle.patch -> ./cordis.patch.yml
+cordis.patch.yml  # registers this bundle in the DSH profile
+index.js       # registers the skills under skills/ on ctx.skills
+skills/        # packaged skills: remember-knowledge, knowledge-search, daily-practice
+```
 
 ## Source layout (split by domain)
 ```

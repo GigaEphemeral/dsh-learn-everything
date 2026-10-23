@@ -2,9 +2,9 @@
   <a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
 </p>
 
-# DSH + Obsidian 学习系统 — 源码（code/）
+# DSH + Obsidian 学习系统 — DSH 插件（code/）
 
-本目录是 DSH + Obsidian 个人学习系统的可运行源码：通过 Obsidian **Local REST API with MCP** 插件受控读写 Vault，
+本目录是 DSH + Obsidian 个人学习系统的**完整 DSH 插件**：通过 Obsidian **Local REST API with MCP** 插件受控读写 Vault，
 驱动 **karpathywiki**（LLM Wiki）编译知识，并提供摄入、检索、每日练习三条业务流。DSH 是唯一入口，
 Obsidian 是正式知识资产的权威存储。
 
@@ -28,6 +28,14 @@ cp .env.example .env   # 填入 OBSIDIAN_API_KEY
 | OBSIDIAN_INGEST_SETTLE_MS | 首个新页面出现后继续等待的沉降毫秒数 | 60000 |
 | OBSIDIAN_REVIEW_W_OVERDUE / WEAKNESS / COVERAGE / NOVELTY | 每日练习选题权重 | 1.0 / 0.8 / 0.5 / 0.3 |
 | OBSIDIAN_STATE_DIR | 运行状态目录（摄入注册表、作答、复习） | code/.state |
+
+## DSH 插件结构
+```
+package.json   # dsh.bundle.patch -> ./cordis.patch.yml
+cordis.patch.yml  # 在 DSH profile 中注册本插件
+index.js       # 把 skills/ 下的技能注册到 ctx.skills
+skills/        # 内置技能：remember-knowledge、knowledge-search、daily-practice
+```
 
 ## 源码结构（按领域分包）
 ```
