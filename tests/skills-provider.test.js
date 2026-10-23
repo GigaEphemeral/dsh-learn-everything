@@ -42,7 +42,7 @@ test("apply registers a provider that lists the packaged skills", async () => {
   const provider = providers[0]();
   assert.equal(provider.name, pluginName);
   const listed = await provider.list();
-  assert.deepEqual(listed.map((skill) => skill.name), ["daily-practice", "knowledge-search", "remember-knowledge"]);
+  assert.deepEqual(listed.map((skill) => skill.name), ["daily-practice", "knowledge-search", "obsidian-access", "remember-knowledge"]);
   assert.ok(listed.every((skill) => typeof skill.description === "string" && skill.description.length > 0));
   assert.ok(listed.every((skill) => skill.content === undefined));
   const definition = await provider.get({ name: "knowledge-search" });
