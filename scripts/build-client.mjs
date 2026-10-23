@@ -12,7 +12,7 @@ const EXTERNALS = [
 ]
 
 await build({
-  entryPoints: ['src/client/index.tsx'],
+  entryPoints: ['src/client/index.js'],
   bundle: true,
   platform: 'browser',
   format: 'cjs',

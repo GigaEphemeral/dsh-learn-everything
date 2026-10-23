@@ -73,7 +73,7 @@ test("registerObsidianRoutes fences requests and registers five routes", () => {
     connection: { requestRejection: (req) => (req.headers.host === "evil" ? new Error("reject") : undefined) },
   };
   registerObsidianRoutes(ctx, { apiKey: "k" });
-  assert.equal(registered.length, 5);
+  assert.equal(registered.length, 6);
   // fence: rejected request -> 403
   const route = registered[0];
   const res = fakeRes();

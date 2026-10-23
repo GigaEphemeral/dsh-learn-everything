@@ -109,6 +109,19 @@ export function makeRouteHandlers(data) {
     }
   };
 
+  // Serve the static graph page (panel/graph.html) so the panel can embed it
+  // in an iframe; the page itself reads ?data= for the graph JSON.
+  handlers.graphPage = async (req, res) => {
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const html = await readFile(new URL("../../panel/graph.html", import.meta.url), "utf8");
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(html);
+    } catch (err) {
+      writeError(res, 500, "obsidian-graph-page", err.message);
+    }
+  };
+
   handlers.compileStatus = async (req, res) => {
     try {
       const filePath = queryParams(req.url).get("file") ?? data.compileStatusFile;
@@ -136,6 +149,7 @@ export function registerObsidianRoutes(ctx, { apiKey, baseUrl, compileStatusFile
     ["/obsidian/api/search", handlers.search],
     ["/obsidian/api/read", handlers.read],
     ["/obsidian/graph", handlers.graph],
+    ["/obsidian/graph-page", handlers.graphPage],
     ["/obsidian/compile-status", handlers.compileStatus],
   ];
   for (const [path, handler] of mounts) {
