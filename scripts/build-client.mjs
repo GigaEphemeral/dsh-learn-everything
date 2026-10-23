@@ -18,7 +18,10 @@ await build({
   format: 'cjs',
   external: EXTERNALS,
   outfile: 'lib/client.js',
-  banner: { js: 'window.__ModuleLoader__.load({ id: "dsh-learn-everything", factory: (require) => {' },
+  // esbuild has no intro option; the official preset defines module/exports
+  // before the bundled code (the tail assigns module.exports), so we fold the
+  // same two lines into the banner.
+  banner: { js: 'window.__ModuleLoader__.load({ id: "dsh-learn-everything", factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;' },
   footer: { js: 'return module.exports; } });' },
   logLevel: 'info',
 })
