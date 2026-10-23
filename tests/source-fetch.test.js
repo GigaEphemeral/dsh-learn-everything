@@ -80,3 +80,22 @@ test("readLocalFile returns file content and enforces the size cap", async (t) =
     (err) => err instanceof SourceFetchError && err.code === "size",
   );
 });
+
+
+test("fetchUrl converts HTML responses to Markdown deterministically", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "text/html" }),
+    arrayBuffer: async () => new TextEncoder().encode("<html><head><title>Doc</title></head><body><h1>Hi</h1><nav>x</nav><p>para</p></body></html>"),
+  });
+  try {
+    const md = await fetchUrl("https://example.com/doc");
+    assert.ok(md.includes("# Hi"));
+    assert.ok(!md.includes("x"));
+    assert.ok(md.includes("para"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

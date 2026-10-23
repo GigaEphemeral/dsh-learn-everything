@@ -4,6 +4,7 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { htmlToMarkdown } from "./html-md.js";
 
 export class SourceFetchError extends Error {
   constructor(message, { code, cause } = {}) {
@@ -46,7 +47,23 @@ export async function fetchUrl(url, { maxBytes = 512 * 1024, timeoutMs = 20000 }
   if (buf.byteLength > maxBytes) {
     throw new SourceFetchError(`content exceeds ${maxBytes} bytes`, { code: "size" });
   }
-  return buf.toString("utf8");
+  const text = buf.toString("utf8");
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("html") || looksLikeHtml(text)) {
+    // Deterministic HTML -> Markdown so the skill never hand-writes a
+    // converter (S3, T1). Original bytes are not kept.
+    try {
+      return htmlToMarkdown(text, { baseUrl: url }).markdown;
+    } catch (err) {
+      throw new SourceFetchError(`HTML to Markdown failed: ${err.message}`, { code: "html" });
+    }
+  }
+  return text;
+}
+
+function looksLikeHtml(text) {
+  const t = text.trimStart().toLowerCase();
+  return t.startsWith("<!doctype") || t.startsWith("<html") || t.startsWith("<head");
 }
 
 // Read a local text file (Markdown source) with a size cap.

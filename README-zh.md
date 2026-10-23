@@ -49,7 +49,7 @@ src/
 ├── ingest/       # 摄入：source-fetch、preflight（查重）、planner、pipeline（两段确认+只 create）、registry、task-state
 ├── search/       # 检索：intent 分类、wiki-first retriever（停用词剥离、分词回退、元数据文件过滤）
 └── learning/     # 学习：question-store、attempt-store（只追加）、review-scheduler（间隔递增+加权优先级）
-scripts/          # ingest-cli / search-cli / practice-cli
+scripts/          # ingest-cli / search-cli / practice-db
 tests/            # node --test 单测
 ```
 

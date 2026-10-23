@@ -52,7 +52,7 @@ src/
 ├── search/       # Search: intent classifier, wiki-first retriever (stopword stripping, per-term fallback,
 │                 #   meta-file filtering)
 └── learning/     # Learning: question store, append-only attempt store, weighted review scheduler
-scripts/          # ingest-cli / search-cli / practice-cli
+scripts/          # ingest-cli / search-cli / practice-db
 tests/            # node --test unit tests
 ```
 
