@@ -1,6 +1,8 @@
-// Unified Obsidian adapter: safe, idempotent vault operations on top of
-// ObsidianClient. All Skills in the learning system should use this module
-// instead of issuing their own HTTP calls.
+// Unified Obsidian adapter: safe vault operations on top of ObsidianClient.
+// Most operations are idempotent, but append() is NOT: replaying a timed-out
+// append can duplicate the same block, so callers must not retry it blindly
+// (C5). All Skills in the learning system should use this module instead of
+// issuing their own HTTP calls.
 
 import { ObsidianClient, ObsidianError } from "./obsidian-client.js";
 import { VaultPathError, encodeVaultPath } from "./vault-path.js";
@@ -42,6 +44,8 @@ export class ObsidianAdapter {
   }
 
   // Append to the end of a note via a root-target append patch.
+  // NOT idempotent: the server applies the content again on every request, so
+  // a retry after a timeout can duplicate a block. Verify the note first.
   async append(path, content) {
     return this.client.request("PATCH", `/vault/${this._path(path)}`, {
       headers: { Operation: "append", "Content-Type": "text/markdown" },

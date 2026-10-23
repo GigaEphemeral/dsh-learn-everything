@@ -3,7 +3,7 @@
 
 import { ObsidianClient, ObsidianAdapter } from "../src/obsidian/obsidian-adapter.js";
 import { SearchRetriever } from "../src/search/retriever.js";
-import { classifyIntent } from "../src/search/intent.js";
+import { classifyIntent, INTENT } from "../src/search/intent.js";
 import { assessSufficiency } from "../src/search/evidence.js";
 
 const apiKey = process.env.OBSIDIAN_API_KEY;
@@ -21,14 +21,14 @@ const retriever = new SearchRetriever({ adapter });
 const intent = classifyIntent(query);
 console.log("intent:", intent);
 
-if (intent === "structure") {
+if (intent === INTENT.structure) {
   const structural = await retriever.structural(query);
   console.log("structural:", JSON.stringify(structural, null, 2));
   process.exit(0);
 }
 
 const results = await retriever.wikiFirst(query);
-const sufficiency = assessSufficiency(query, results, { exactFact: intent === "source" });
+const sufficiency = assessSufficiency(query, results, { exactFact: intent === INTENT.source });
 console.log("sufficiency:", JSON.stringify(sufficiency, null, 2));
 console.log("results:", JSON.stringify(results, null, 2));
 process.exit(0);

@@ -28,19 +28,58 @@ export function apply(ctx) {
       options?.signal?.throwIfAborted()
       const listed = await loadSkills(options?.signal)
       options?.signal?.throwIfAborted()
-      return listed.map(toCandidate)
+      return cachedCandidates(listed)
     },
     async get(candidate, options) {
       options?.signal?.throwIfAborted()
       const listed = await loadSkills(options?.signal)
-      const skill = listed.find((entry) => entry.name === candidate.name)
+      const skill = catalogIndex(listed).get(candidate?.name)
       return skill === undefined ? undefined : toDefinition(skill)
     },
   }))
 }
 
 async function loadSkills(signal) {
-  return loadSkillsFrom(SKILLS_ROOT, signal)
+  return loadSkillsCached(SKILLS_ROOT, signal)
+}
+
+// Catalog caches (F5): packaged skills only change with the plugin, so each
+// root is loaded once and shared by every list()/get() call. The promise is
+// memoized so concurrent first calls do not race; a failed load is evicted so
+// the next call retries instead of replaying the rejection forever.
+const catalogCache = new Map()
+const candidateCache = new WeakMap()
+const indexCache = new WeakMap()
+
+// Exported for tests; the plugin itself always loads the packaged SKILLS_ROOT.
+export function loadSkillsCached(root = SKILLS_ROOT, signal) {
+  const cached = catalogCache.get(root)
+  if (cached !== undefined) return cached.promise
+  const entry = {}
+  entry.promise = loadSkillsFrom(root, signal).catch((error) => {
+    if (catalogCache.get(root) === entry) catalogCache.delete(root)
+    throw error
+  })
+  catalogCache.set(root, entry)
+  return entry.promise
+}
+
+function cachedCandidates(skills) {
+  let candidates = candidateCache.get(skills)
+  if (candidates === undefined) {
+    candidates = skills.map(toCandidate)
+    candidateCache.set(skills, candidates)
+  }
+  return candidates
+}
+
+function catalogIndex(skills) {
+  let index = indexCache.get(skills)
+  if (index === undefined) {
+    index = new Map(skills.map((skill) => [skill.name, skill]))
+    indexCache.set(skills, index)
+  }
+  return index
 }
 
 // Exported for tests and for callers that need a catalog from another root.

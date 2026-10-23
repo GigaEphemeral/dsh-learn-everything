@@ -4,6 +4,11 @@
 
 import type { LearningDb } from '../db/client.js';
 import { safeLimit } from './limits.js';
+import { toCanonicalIso } from './time.js';
+
+// Re-exported for existing callers (the validator moved to the shared time
+// module so the attempt store can reuse it without depending on scheduling).
+export { toCanonicalIso };
 
 // Review policy constants (A27): explainable, easy to tune in one place.
 export const MIN_INTERVAL_DAYS = 1;
@@ -51,24 +56,6 @@ export interface ReviewSchedule {
   last_result: string | null;
   next_review: string;
   updated_at: string;
-}
-
-// Validate an ISO-8601 timestamp and require it to be canonical UTC (the exact
-// form Date#toISOString() produces). Lexicographic comparisons and cross-process
-// scheduling both rely on that canonical form.
-export function toCanonicalIso(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value === '') {
-    throw new Error(`${label} must be a non-empty ISO-8601 string, got ${typeof value}`);
-  }
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms)) {
-    throw new Error(`${label} is not a valid ISO-8601 timestamp: "${value}"`);
-  }
-  const canonical = new Date(ms).toISOString();
-  if (canonical !== value) {
-    throw new Error(`${label} must be canonical UTC ISO-8601 ("${canonical}"), got "${value}"`);
-  }
-  return canonical;
 }
 
 export class ReviewStore {

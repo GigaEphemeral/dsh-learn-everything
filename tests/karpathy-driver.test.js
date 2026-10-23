@@ -1,6 +1,7 @@
 // Unit tests for KarpathyDriver: snapshot diff and blocking wait.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 import {
   DEFAULT_INGEST_POLL_INTERVAL_MS,
   DEFAULT_INGEST_SETTLE_MS,
@@ -8,6 +9,7 @@ import {
   KarpathyDriver,
   WIKI_DIRS,
   WIKI_DIR_KEYS,
+  WikiIngestTimeoutError,
 } from "../src/wiki/karpathy-driver.js";
 
 function makeDriver({ listImpl, pollIntervalMs = 5, timeoutMs = 500, settleMs = 2 }) {
@@ -64,12 +66,17 @@ test("waitForIngest returns as soon as pages appear", async () => {
   assert.ok(result.elapsedMs >= 0);
 });
 
-test("waitForIngest throws on timeout with no pages", async () => {
+test("waitForIngest throws WikiIngestTimeoutError on timeout (D6)", async () => {
   const driver = makeDriver({ listImpl: () => [], pollIntervalMs: 5, timeoutMs: 50 });
   const snapshot = await driver.snapshotWiki();
   await assert.rejects(
     () => driver.waitForIngest({ snapshot, timeoutMs: 50, pollIntervalMs: 5 }),
-    /no wiki pages within 50ms/,
+    (err) => {
+      assert.ok(err instanceof WikiIngestTimeoutError);
+      assert.equal(err.code, "WIKI_INGEST_TIMEOUT");
+      assert.match(err.message, /no wiki pages within 50ms/);
+      return true;
+    },
   );
 });
 
@@ -128,4 +135,45 @@ test("openAndIngest surfaces a non-OK command result", async () => {
   const mcp = { tool: async () => "error" };
   const driver = new KarpathyDriver({ adapter, mcp, pollIntervalMs: 5, timeoutMs: 100 });
   await assert.rejects(() => driver.openAndIngest("x.md"), /did not return OK/);
+});
+
+test("snapshotWiki lists the three wiki dirs in parallel (D5)", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const adapter = {
+    async list(dir) {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return { files: [`${dir}/x.md`] };
+    },
+  };
+  const driver = new KarpathyDriver({ adapter, mcp: { tool: async () => "OK" }, pollIntervalMs: 5, timeoutMs: 100 });
+  const snap = await driver.snapshotWiki();
+  // Serial requests would never overlap; all three start before the first resolves.
+  assert.equal(maxInFlight, 3);
+  assert.deepEqual(Object.keys(snap), WIKI_DIRS);
+  assert.deepEqual([...snap["wiki/sources"]], ["wiki/sources/x.md"]);
+});
+
+test("snapshotWiki maps missing dirs to empty sets and rethrows other errors (D5)", async () => {
+  const adapter = {
+    async list(dir) {
+      if (dir === "wiki/concepts") throw new ObsidianError("missing", { status: 404 });
+      return { files: [`${dir}/a.md`] };
+    },
+  };
+  const driver = new KarpathyDriver({ adapter, mcp: { tool: async () => "OK" }, pollIntervalMs: 5, timeoutMs: 100 });
+  const snap = await driver.snapshotWiki();
+  assert.deepEqual([...snap["wiki/concepts"]], []);
+  assert.deepEqual([...snap["wiki/entities"]], ["wiki/entities/a.md"]);
+
+  const failing = {
+    async list() {
+      throw new ObsidianError("server error", { status: 500 });
+    },
+  };
+  const broken = new KarpathyDriver({ adapter: failing, mcp: { tool: async () => "OK" }, pollIntervalMs: 5, timeoutMs: 100 });
+  await assert.rejects(() => broken.snapshotWiki(), (err) => err.status === 500);
 });

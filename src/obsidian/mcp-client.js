@@ -4,6 +4,13 @@
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 
+// Wire-level protocol values live in one place instead of being repeated as
+// magic strings in the envelope and the headers (C18).
+export const MCP_PROTOCOL_VERSION = "2026-07-28";
+export const MCP_ENDPOINT = "/mcp/";
+export const CLIENT_NAME = "dsh-wiki";
+export const CLIENT_VERSION = "1.0.0";
+
 export class McpError extends Error {
   constructor(message, { code, status = 0 } = {}) {
     super(message);
@@ -30,6 +37,17 @@ function resultText(result) {
     .join("\n");
 }
 
+// JSON-RPC errors are not always a well-formed { code, message } object. Fall
+// back to the string itself or its JSON form so the message is never
+// `undefined`, and only forward `code` when the server actually supplied one
+// (C20).
+function normalizeRpcError(error) {
+  if (typeof error === "string") return { message: error };
+  if (typeof error?.message === "string") return { message: error.message, code: error.code };
+  const serialized = JSON.stringify(error);
+  return { message: serialized ?? String(error), code: error?.code };
+}
+
 export class McpClient {
   constructor({ baseUrl = "https://127.0.0.1:27124", apiKey, timeoutMs = 30000 } = {}) {
     if (!apiKey) throw new Error("McpClient: apiKey is required");
@@ -51,21 +69,21 @@ export class McpClient {
       params: {
         ...params,
         _meta: {
-          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-          "io.modelcontextprotocol/clientInfo": { name: "dsh-wiki", version: "1.0.0" },
+          "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+          "io.modelcontextprotocol/clientInfo": { name: CLIENT_NAME, version: CLIENT_VERSION },
           "io.modelcontextprotocol/clientCapabilities": {},
         },
       },
     });
     const res = await this._raw({
       method: "POST",
-      path: "/mcp/",
+      path: MCP_ENDPOINT,
       headers: {
         "Content-Type": "application/json",
         // Streamable HTTP requires accepting both response encodings (C17).
         Accept: "application/json, text/event-stream",
         Authorization: `Bearer ${this.apiKey}`,
-        "MCP-Protocol-Version": "2026-07-28",
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
         "Mcp-Method": method,
         "Mcp-Name": name,
       },
@@ -86,7 +104,8 @@ export class McpClient {
       throw new McpError(`MCP ${method}: non-JSON response`, { code: -32700 });
     }
     if (parsed.error) {
-      throw new McpError(`MCP ${method} failed: ${parsed.error.message}`, { code: parsed.error.code });
+      const { message, code } = normalizeRpcError(parsed.error);
+      throw new McpError(`MCP ${method} failed: ${message}`, code === undefined ? {} : { code });
     }
     // A JSON-RPC response without `result` cannot be consumed safely (C15).
     if (parsed.result === undefined) {

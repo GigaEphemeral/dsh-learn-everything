@@ -74,12 +74,17 @@ export class IngestTask {
 
   transition(nextState) {
     assertKnownState(nextState, "IngestTask.transition");
-    const allowed = ALLOWED_TRANSITIONS[this.#state];
+    const previous = this.#state;
+    const allowed = ALLOWED_TRANSITIONS[previous];
     if (!allowed.includes(nextState)) {
-      throw new Error(`illegal task transition ${this.#state} -> ${nextState}`);
+      throw new Error(`illegal task transition ${previous} -> ${nextState}`);
     }
     this.#state = nextState;
-    this.updatedAt = new Date().toISOString();
+    const at = new Date().toISOString();
+    this.updatedAt = at;
+    // Record the audit trail (from/to/when) so a restored task can explain how it
+    // reached its persisted state.
+    this.steps.push({ step: "state_change", detail: { from: previous, to: nextState }, at });
     return this;
   }
 

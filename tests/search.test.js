@@ -1,7 +1,8 @@
 // Unit tests for the search router (P4).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyIntent } from "../src/search/intent.js";
+import { ObsidianError } from "../src/obsidian/obsidian-client.js";
+import { classifyIntent, INTENT, INTENTS } from "../src/search/intent.js";
 import { SearchRetriever } from "../src/search/retriever.js";
 
 test("classifyIntent routes concept / source / structure / combined", () => {
@@ -15,10 +16,19 @@ test("classifyIntent routes concept / source / structure / combined", () => {
 test("classifyIntent falls back to combined for missing or blank input", () => {
   const invalid = [undefined, null, "", "   ", 42];
   for (const query of invalid) {
-    assert.equal(classifyIntent(query), "combined");
+    assert.equal(classifyIntent(query), INTENT.combined);
   }
   // A blank query must never be classified as a specific intent.
-  assert.equal(classifyIntent(" "), "combined");
+  assert.equal(classifyIntent(" "), INTENT.combined);
+});
+
+test("named INTENT constants and the ordered INTENTS list agree (G22)", () => {
+  assert.deepEqual([...INTENTS], Object.values(INTENT));
+  // Routing literals consumed by scripts must equal the shared constants.
+  assert.equal(INTENT.concept, "concept");
+  assert.equal(INTENT.source, "source");
+  assert.equal(INTENT.structure, "structure");
+  assert.equal(INTENT.combined, "combined");
 });
 
 test("intent markers respect ASCII word boundaries and avoid the broad 值 marker (E7/E8)", () => {
@@ -133,4 +143,42 @@ test("_search wraps adapter failures with query context and cause (E16)", async 
     assert.equal(err.cause, cause);
     return true;
   });
+});
+
+test("_search runs the per-term fallback in parallel and merges in term order (E13)", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const adapter = {
+    async search(q) {
+      if (q === "alpha beta gamma") return [];
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return [
+        { filename: `${q}.md`, score: 1, matches: [] },
+        { filename: "shared.md", score: 0.5, matches: [] },
+      ];
+    },
+  };
+  const retriever = new SearchRetriever({ adapter });
+  const hits = await retriever._search("alpha beta gamma");
+  // Three independent searches overlap; serial execution would never exceed 1.
+  assert.equal(maxInFlight, 3);
+  // Dedupe keeps the first hit per filename in term order, not completion order.
+  assert.deepEqual(hits.map((hit) => hit.path), ["alpha.md", "shared.md", "beta.md", "gamma.md"]);
+});
+
+test("readNote turns a 404 into null and rethrows other failures (E17)", async () => {
+  const adapter = {
+    async read(path) {
+      if (path === "missing.md") throw new ObsidianError("not found", { status: 404 });
+      if (path === "broken.md") throw new ObsidianError("server error", { status: 500 });
+      return { content: "ok" };
+    },
+  };
+  const retriever = new SearchRetriever({ adapter });
+  assert.equal(await retriever.readNote("missing.md"), null);
+  assert.deepEqual(await retriever.readNote("here.md"), { content: "ok" });
+  await assert.rejects(() => retriever.readNote("broken.md"), (err) => err.status === 500);
 });

@@ -5,6 +5,7 @@ import { LearningDb } from '../src/db/client.js';
 import { QuestionStore } from '../src/learning/questions.js';
 import { ReviewStore } from '../src/learning/review.js';
 import { PracticeSelector } from '../src/learning/selection.js';
+import type { ScoredCandidate } from '../src/learning/selection.js';
 import { PracticeSession } from '../src/learning/practice.js';
 
 test("overdue questions score higher than fresh ones", () => {
@@ -123,5 +124,95 @@ test("weights resolve per instance from env and must be non-negative finite (A40
   }
   assert.throws(() => new PracticeSelector(ldb, { overdue: -1 }), /non-negative/);
   assert.throws(() => new PracticeSelector(ldb, { overdue: Number.NaN }), /finite number/);
+  ldb.close();
+});
+
+test("score projects only next_review from review_schedule (A37)", () => {
+  const ldb = new LearningDb(':memory:');
+  new ReviewStore(ldb).applyAttempt("q1", false);
+  const prepared: string[] = [];
+  type PrepareFn = LearningDb['db']['prepare'];
+  const realPrepare = ldb.db.prepare.bind(ldb.db) as PrepareFn;
+  (ldb.db as unknown as { prepare: PrepareFn }).prepare = ((sql: string) => {
+    prepared.push(sql);
+    return realPrepare(sql);
+  }) as PrepareFn;
+  new PracticeSelector(ldb, { overdue: 1, weakness: 0, coverage: 0, novelty: 0 }).score("q1");
+  (ldb.db as unknown as { prepare: PrepareFn }).prepare = realPrepare;
+  const projection = prepared.find((sql) => /FROM review_schedule/.test(sql));
+  assert.ok(projection, "expected the schedule projection to be prepared");
+  // last_result is unused by selection; projecting it invites the false
+  // assumption that the last answer drives weakness.
+  assert.match(projection, /SELECT next_review FROM review_schedule/);
+  assert.doesNotMatch(projection, /last_result/);
+  ldb.close();
+});
+
+test("weakness window is read per instance from OBSIDIAN_REVIEW_WEAKNESS_WINDOW (A42)", () => {
+  const ldb = new LearningDb(':memory:');
+  const ps = new PracticeSession(ldb);
+  ps.startQuestion({ questionId: "q1", version: 1, type: "concept", topic: "t", prompt: "p", reference: null });
+  const answer = (result: "correct" | "incorrect"): void => {
+    ps.recordAnswer({ questionId: "q1", questionVersion: 1, result, score: 1, answerSummary: null });
+  };
+  // Newest first: incorrect, correct, incorrect => default window 3 scores 2/3.
+  answer("incorrect");
+  answer("correct");
+  answer("incorrect");
+  const weights = { overdue: 0, weakness: 1, coverage: 0, novelty: 0 };
+  const previous = process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW;
+  try {
+    delete process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW;
+    const defaultWindow = new PracticeSelector(ldb, weights);
+    assert.ok(Math.abs(defaultWindow.score("q1") - 2 / 3) < 1e-9);
+    // Read at construction, not at module load: changing the env afterwards
+    // affects only new selectors.
+    process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW = "2";
+    assert.ok(Math.abs(defaultWindow.score("q1") - 2 / 3) < 1e-9);
+    // Window 2 looks only at the newest incorrect + correct => 1/2.
+    assert.ok(Math.abs(new PracticeSelector(ldb, weights).score("q1") - 0.5) < 1e-9);
+    process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW = "0";
+    assert.throws(() => new PracticeSelector(ldb), /positive integer/);
+    process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW = "2.5";
+    assert.throws(() => new PracticeSelector(ldb), /positive integer/);
+    process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW = "many";
+    assert.throws(() => new PracticeSelector(ldb), /positive integer/);
+  } finally {
+    if (previous === undefined) delete process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW;
+    else process.env.OBSIDIAN_REVIEW_WEAKNESS_WINDOW = previous;
+  }
+  ldb.close();
+});
+
+test("weakness counts partial answers as half incorrect (A44)", () => {
+  const ldb = new LearningDb(':memory:');
+  const ps = new PracticeSession(ldb);
+  ps.startQuestion({ questionId: "q_partial_only", version: 1, type: "concept", topic: "t", prompt: "p", reference: null });
+  ps.startQuestion({ questionId: "q_mixed", version: 1, type: "concept", topic: "t", prompt: "p", reference: null });
+  ps.recordAnswer({ questionId: "q_partial_only", questionVersion: 1, result: "partial", score: 1, answerSummary: null });
+  ps.recordAnswer({ questionId: "q_mixed", questionVersion: 1, result: "partial", score: 1, answerSummary: null });
+  ps.recordAnswer({ questionId: "q_mixed", questionVersion: 1, result: "correct", score: 1, answerSummary: null });
+  const sel = new PracticeSelector(ldb, { overdue: 0, weakness: 1, coverage: 0, novelty: 0 });
+  // A partial-only window is half evidence of a gap, not zero.
+  assert.equal(sel.score("q_partial_only"), 0.5);
+  // Mixed window: (0.5 + 0) / 2, which the old incorrect-only counting scored 0.
+  assert.equal(sel.score("q_mixed"), 0.25);
+  ldb.close();
+});
+
+test("selectCandidates returns the score with each ranked item (A43)", () => {
+  const ldb = new LearningDb(':memory:');
+  const ps = new PracticeSession(ldb);
+  ps.startQuestion({ questionId: "a", version: 1, type: "concept", topic: "t", prompt: "p", reference: null });
+  ps.startQuestion({ questionId: "b", version: 1, type: "concept", topic: "t", prompt: "p", reference: null });
+  ps.recordAnswer({ questionId: "a", questionVersion: 1, phase: "first", correct: false, result: "incorrect", score: 1, answerSummary: null, concepts: [] });
+  const sel = new PracticeSelector(ldb);
+  // Type-level: the declaration must expose `score`, so this annotation fails
+  // to compile if selectCandidates goes back to a plain Candidate[] return.
+  const picked: ScoredCandidate[] = sel.selectCandidates([{ questionId: "a", topicCount: 2, attemptedCount: 1 }, { questionId: "b", topicCount: 2, attemptedCount: 0 }]);
+  assert.equal(picked.length, 2);
+  assert.equal(typeof picked[0].score, "number");
+  assert.equal(typeof picked[1].score, "number");
+  assert.ok(picked[0].score >= picked[1].score);
   ldb.close();
 });

@@ -1,6 +1,8 @@
 // Regression tests for the P1 CLI/packaging hardening wave:
 // - practice-db argument validation (G7/G8), safe backup (G11/G12) and DB
 //   lifecycle on failures (G10);
+// - status attempt history through AttemptStore, newest-first (G9);
+// - a static guard that the CLI scripts keep every import used (G1);
 // - the default test runner excluding the live vault suite (H2);
 // - packaging metadata (H1/H3), .gitignore hygiene (H4/H5/H6) and the
 //   cordis.patch.yml description (F8);
@@ -120,6 +122,33 @@ test("question, answer and status round-trip through SQLite", (t) => {
   assert.equal(report.review.correct_streak, 1);
   assert.equal(report.mastery.length, 1);
   assert.equal(report.mastery[0].source, "model_rating");
+});
+
+test("status lists attempts newest-first through the attempt store projection", (t) => {
+  const paths = makeTempPaths(t);
+  assert.equal(runCli(["question", questionArg()], paths).status, 0);
+
+  // Two answers so ordering is observable: the wrong one comes first.
+  const wrong = { ...ANSWER, correct: false, result: "incorrect", score: 3, answerSummary: "Missed the interval growth." };
+  const first = runCli(["answer", JSON.stringify(wrong)], paths);
+  assert.equal(first.status, 0, first.stderr);
+  const second = runCli(["answer", JSON.stringify({ ...ANSWER, phase: "correction" })], paths);
+  assert.equal(second.status, 0, second.stderr);
+
+  const status = runCli(["status", "q-1"], paths);
+  assert.equal(status.status, 0, status.stderr);
+  const report = JSON.parse(status.stdout);
+  assert.equal(report.attempts.length, 2);
+  // AttemptStore returns the history newest-first; reverting to the old ad-hoc
+  // `ORDER BY id` (oldest first) SELECT would put the first answer first.
+  assert.equal(report.attempts[0].result, "correct", "status must list the latest attempt first");
+  assert.equal(report.attempts[1].result, "incorrect");
+  // These keys only exist because the row comes from the store projection;
+  // the old four-column SELECT dropped attempt_id/question_version/answer_summary.
+  assert.match(report.attempts[0].attempt_id, /^attempt_/);
+  assert.equal(report.attempts[0].question_version, 1);
+  assert.equal(report.attempts[0].answer_summary, "Explained the interval growth.");
+  assert.equal(report.attempts[1].answer_summary, "Missed the interval growth.");
 });
 
 test("an invalid answer is rejected before any write", (t) => {
@@ -255,6 +284,27 @@ test("hardened CLI scripts use process.exitCode instead of process.exit", () => 
   for (const name of ["ingest-cli.mjs", "practice-db.mjs", "wiki-node-cli.mjs"]) {
     const source = readFileSync(join(CODE_DIR, "scripts", name), "utf8");
     assert.doesNotMatch(source, /process\.exit\s*\(/, `${name} must not call process.exit()`);
+  }
+});
+
+test("CLI scripts keep every imported binding used", () => {
+  // Static guard for G1: a leftover import (e.g. pathToFileURL for a guard that
+  // no longer exists) misleads readers. Every imported local name must appear
+  // again in the file body; the import specifier itself is the only allowed hit.
+  for (const name of ["ingest-cli.mjs", "practice-db.mjs", "wiki-node-cli.mjs"]) {
+    const source = readFileSync(join(CODE_DIR, "scripts", name), "utf8");
+    const unused = [];
+    for (const line of source.split("\n")) {
+      const match = line.match(/^import\s+(?:\{([^}]*)\}|([A-Za-z_$][\w$]*))\s+from\s+["']/);
+      if (!match) continue;
+      const specifiers = match[2] ? [match[2]] : match[1].split(",").map((spec) => spec.trim()).filter(Boolean);
+      for (const specifier of specifiers) {
+        const local = specifier.split(/\s+as\s+/).pop().trim();
+        const uses = source.match(new RegExp(`\\b${local.replace(/\$/g, "\\$")}\\b`, "g")) ?? [];
+        if (uses.length <= 1) unused.push(local);
+      }
+    }
+    assert.deepEqual(unused, [], `${name} imports unused bindings: ${unused.join(", ")}`);
   }
 });
 

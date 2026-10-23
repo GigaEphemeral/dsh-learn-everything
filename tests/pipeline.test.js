@@ -2,7 +2,7 @@
 // registry and wiki driver so the full flow runs without network or vault.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IngestPipeline } from "../src/ingest/pipeline.js";
+import { IngestPipeline, PREFLIGHT_PROMPT, WRITE_PROMPT } from "../src/ingest/pipeline.js";
 import { IngestTask } from "../src/ingest/task-state.js";
 import { ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 
@@ -343,4 +343,117 @@ test("runs without a wiki driver and reports a null compile result", async () =>
   assert.equal(report.status, "completed");
   assert.equal(report.compile, null);
   assert.equal(registry.saved.length, 1);
+});
+
+test("a non-412 write failure is logged on the task and rethrown with write context", async () => {
+  const adapter = makeAdapter({ createError: new Error("network down") });
+  const registry = makeRegistry();
+  const task = makeTask("t-write-fail");
+  const confirm = makeConfirm({ task, answers: [true, true] });
+  const pipeline = new IngestPipeline({ adapter, registry, driver: null, task });
+
+  await assert.rejects(
+    () => pipeline.run({ source: makeSource(), confirm }),
+    (err) => {
+      assert.equal(err.message, "write failed for Sources/pipeline-note.md: network down");
+      assert.equal(err.cause.message, "network down");
+      return true;
+    },
+  );
+  assert.equal(task.state, "failed");
+  const writeStep = task.steps.find((step) => step.step === "write");
+  assert.ok(writeStep, "the write failure must be recorded on the task");
+  assert.equal(writeStep.detail, "network down");
+  assert.equal(registry.added.length, 0);
+});
+
+test("a confirm callback that throws fails gate 1 instead of leaving the task awaiting", async () => {
+  const adapter = makeAdapter();
+  const registry = makeRegistry();
+  const task = makeTask("t-confirm-throw-1");
+  const pipeline = new IngestPipeline({ adapter, registry, driver: null, task });
+
+  const report = await pipeline.run({
+    source: makeSource(),
+    confirm: async () => {
+      throw new Error("prompt pipe closed");
+    },
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.stage, "confirm-preflight");
+  assert.match(report.error, /prompt pipe closed/);
+  assert.equal(report.preflight.targetPath, "Sources/pipeline-note.md");
+  assert.equal(task.state, "failed");
+  assert.equal(adapter.created.size, 0);
+  assert.equal(registry.added.length, 0);
+});
+
+test("a confirm callback that throws fails gate 2 instead of leaving the task awaiting", async () => {
+  const adapter = makeAdapter();
+  const registry = makeRegistry();
+  const task = makeTask("t-confirm-throw-2");
+  let prompts = 0;
+  const pipeline = new IngestPipeline({ adapter, registry, driver: null, task });
+
+  const report = await pipeline.run({
+    source: makeSource(),
+    confirm: async () => {
+      prompts += 1;
+      if (prompts === 1) return true;
+      throw new Error("second prompt failed");
+    },
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.stage, "confirm-write");
+  assert.match(report.error, /second prompt failed/);
+  assert.equal(report.plan.targetPath, "Sources/pipeline-note.md");
+  assert.equal(task.state, "failed");
+  assert.equal(adapter.created.size, 0);
+});
+
+test("gate prompts are produced by the exported PREFLIGHT_PROMPT/WRITE_PROMPT builders", async () => {
+  const adapter = makeAdapter();
+  const registry = makeRegistry();
+  const source = makeSource();
+  const prompts = [];
+
+  const gateOneTask = makeTask("t-prompt-builders-1");
+  const gateOnePipeline = new IngestPipeline({ adapter, registry, driver: null, task: gateOneTask });
+  const cancelledOne = await gateOnePipeline.run({
+    source,
+    confirm: makeConfirm({ task: gateOneTask, prompts, answers: [false] }),
+  });
+  assert.equal(prompts[0], PREFLIGHT_PROMPT(source, cancelledOne.preflight));
+
+  const gateTwoTask = makeTask("t-prompt-builders-2");
+  const gateTwoPipeline = new IngestPipeline({ adapter, registry, driver: null, task: gateTwoTask });
+  const cancelledTwo = await gateTwoPipeline.run({
+    source,
+    confirm: makeConfirm({ task: gateTwoTask, prompts, answers: [true, false] }),
+  });
+  assert.equal(prompts.at(-1), WRITE_PROMPT(cancelledTwo.plan));
+});
+
+test("a custom wikiSourcesDir is used for the slug-duplicate listing", async () => {
+  const adapter = makeAdapter({ files: ["custom/sources/pipeline-note.md"] });
+  const registry = makeRegistry();
+  const task = makeTask("t-wiki-dir");
+  const pipeline = new IngestPipeline({
+    adapter,
+    registry,
+    driver: null,
+    task,
+    wikiSourcesDir: "custom/sources",
+  });
+
+  const report = await pipeline.run({ source: makeSource(), confirm: makeConfirm({ task, answers: [false] }) });
+
+  assert.equal(report.status, "cancelled");
+  assert.deepEqual(
+    adapter.calls.find(([name]) => name === "list"),
+    ["list", "custom/sources"],
+  );
+  assert.equal(report.preflight.duplicate.slugMatch, true);
 });

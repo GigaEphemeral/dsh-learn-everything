@@ -68,29 +68,61 @@ export interface Candidate {
   attemptedCount: number;
 }
 
+// A43: callers see the ranking basis, not just a re-ordered Candidate list.
+export type ScoredCandidate = Candidate & { score: number };
+
+// A42: how many recent attempts the weakness score looks at. Resolved per
+// selector instance from OBSIDIAN_REVIEW_WEAKNESS_WINDOW (positive integer,
+// fallback 3) so tuning does not require a code change. A malformed value is a
+// configuration error: silently clamping it would change the ranking basis.
+export const DEFAULT_WEAKNESS_WINDOW = 3;
+const WEAKNESS_WINDOW_ENV = 'OBSIDIAN_REVIEW_WEAKNESS_WINDOW';
+
+function resolveWeaknessWindow(): number {
+  const raw = process.env[WEAKNESS_WINDOW_ENV];
+  if (raw === undefined || raw.trim() === '') return DEFAULT_WEAKNESS_WINDOW;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`invalid ${WEAKNESS_WINDOW_ENV}="${raw}": expected a positive integer`);
+  }
+  return parsed;
+}
+
 export class PracticeSelector {
   private readonly weights: SelectionWeights;
+  private readonly weaknessWindow: number;
 
   constructor(
     private readonly ldb: LearningDb,
     weights: Partial<SelectionWeights> = {},
   ) {
     this.weights = resolveWeights(weights);
+    this.weaknessWindow = resolveWeaknessWindow();
   }
 
-  // Weakness 0..1: share of incorrect results in the last `window` attempts.
-  private weakness(questionId: string, window = 3): number {
-    const rows = this.ldb.db.prepare('SELECT result FROM attempts WHERE question_id = ? ORDER BY id DESC LIMIT ?').all(questionId, window) as Array<{ result: string }>;
+  // Weakness 0..1: weighted share of bad results in the most recent
+  // `weaknessWindow` attempts. `partial` counts as half a wrong answer (A44):
+  // treating it as a success understates how weak the topic is, while treating
+  // it as fully wrong overstates it.
+  private weakness(questionId: string): number {
+    const rows = this.ldb.db.prepare('SELECT result FROM attempts WHERE question_id = ? ORDER BY id DESC LIMIT ?').all(questionId, this.weaknessWindow) as Array<{ result: string }>;
     if (rows.length === 0) return 0;
-    const incorrect = rows.filter((r) => r.result === "incorrect").length;
-    return incorrect / rows.length;
+    let weighted = 0;
+    for (const row of rows) {
+      if (row.result === 'incorrect') weighted += 1;
+      else if (row.result === 'partial') weighted += 0.5;
+    }
+    return weighted / rows.length;
   }
 
   score(questionId: string, opts: { attemptedCount?: number; topicCount?: number; now?: Date } = {}): number {
     const { attemptedCount = 0, topicCount = 1, now = new Date() } = opts;
+    // A37: overdue only needs the timestamp; novelty is derived from the row
+    // existing, so last_result must not be fetched (an unused projection column
+    // invites the false assumption that selection reads the last result).
     const cur = this.ldb.db
-      .prepare('SELECT next_review, last_result FROM review_schedule WHERE question_id = ?')
-      .get(questionId) as { next_review: string; last_result: string | null } | undefined;
+      .prepare('SELECT next_review FROM review_schedule WHERE question_id = ?')
+      .get(questionId) as { next_review: string } | undefined;
     // A39: parse explicitly and only trust finite timestamps, so a corrupt
     // next_review can never leak NaN/Invalid Date semantics into the ranking.
     const nextReviewMs = cur ? Date.parse(cur.next_review) : Number.NaN;
@@ -110,8 +142,9 @@ export class PracticeSelector {
     );
   }
 
-  // Rank candidates by score, highest first (due/weak/new first).
-  selectCandidates(candidates: Candidate[], limit = 5, now = new Date()): Candidate[] {
+  // Rank candidates by score, highest first (due/weak/new first). The score is
+  // returned with each item so callers can explain the ranking (A43).
+  selectCandidates(candidates: Candidate[], limit = 5, now = new Date()): ScoredCandidate[] {
     return candidates
       .map((c) => ({ ...c, score: this.score(c.questionId, { attemptedCount: c.attemptedCount, topicCount: c.topicCount, now }) }))
       .sort((a, b) => b.score - a.score)

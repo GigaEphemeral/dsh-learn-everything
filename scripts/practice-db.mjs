@@ -8,6 +8,9 @@
 //   node scripts/practice-db.mjs backup <absolute-path>
 //   node scripts/practice-db.mjs check
 //
+// `status` prints the 50 most recent attempts newest-first, read through
+// AttemptStore (the store owns attempt ordering and projection).
+//
 // Exit codes: 0 success, 2 usage error (nothing was written), 1 operational
 // error. Usage is validated before the database is opened, so a typo never
 // creates or binds a database.
@@ -17,6 +20,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LearningDb } from "../lib/src/db/client.js";
 import { PracticeSession } from "../lib/src/learning/practice.js";
+import { AttemptStore } from "../lib/src/learning/attempts.js";
 import { QuestionStore } from "../lib/src/learning/questions.js";
 import { ReviewStore } from "../lib/src/learning/review.js";
 import { MasteryStore } from "../lib/src/learning/mastery.js";
@@ -25,11 +29,14 @@ import { resolveStateDir } from "../src/ingest/state-dir.js";
 const EXIT_USAGE = 2;
 const RESULTS = ["correct", "incorrect", "partial"];
 const PHASES = ["first", "correction", "variant"];
+// Bounded history for `status`: enough to show the recent trend without
+// dumping an unbounded attempt log.
+const STATUS_ATTEMPT_LIMIT = 50;
 const USAGE = [
   "usage: node scripts/practice-db.mjs <command>",
   "  question '<json>'    record a generated question",
   "  answer '<json>'      record an answer with its rating/review update",
-  "  status <questionId>  print the question, review schedule, attempts and mastery",
+  "  status <questionId>  print the question, review schedule, recent attempts (newest first) and mastery",
   "  backup <path>        copy the live database to an absolute path (WAL-safe)",
   "  check                run PRAGMA integrity_check and report the schema version",
 ].join("\n");
@@ -204,9 +211,9 @@ function run(command, ldb, dbPath) {
     const qid = command.payload;
     const question = new QuestionStore(ldb).get(qid);
     const review = new ReviewStore(ldb).get(qid);
-    const attempts = ldb.db
-      .prepare("SELECT result, phase, score, answered_at FROM attempts WHERE question_id = ? ORDER BY id")
-      .all(qid);
+    // AttemptStore owns the attempt query and returns newest-first, so the ad-hoc
+    // `ORDER BY id` SELECT (opposite order, bypassing the store) is gone.
+    const attempts = new AttemptStore(ldb).recentFor(qid, STATUS_ATTEMPT_LIMIT);
     let mastery = [];
     if (question) {
       const concept = ldb.db.prepare("SELECT id FROM concepts WHERE name = ?").get(question.topic);

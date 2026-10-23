@@ -2,7 +2,15 @@
 // Rule-based: concept exploration, exact-source lookup, structural query,
 // or combined. Kept deterministic and testable (no LLM involved).
 
-export const INTENTS = ["concept", "source", "structure", "combined"];
+// Named intent constants so routing code never repeats raw strings (G22).
+// INTENTS is derived from the same object, keeping the names impossible to drift.
+export const INTENT = Object.freeze({
+  concept: "concept",
+  source: "source",
+  structure: "structure",
+  combined: "combined",
+});
+export const INTENTS = Object.freeze(Object.values(INTENT));
 
 // ASCII markers are matched on word boundaries so short English words do not
 // fire inside longer words ("how" in "show", "code" in "decode"). CJK markers
@@ -46,7 +54,7 @@ export function classifyIntent(query) {
   // Guard: a missing, non-string, or blank query carries no intent signal.
   // Return "combined" (the fallback used when no single intent dominates)
   // instead of throwing, so one bad input cannot break the whole search CLI.
-  if (typeof query !== "string" || query.trim() === "") return "combined";
+  if (typeof query !== "string" || query.trim() === "") return INTENT.combined;
   const q = query.toLowerCase();
   const hits = {
     concept: anyMarkerHits(CONCEPT_MARKERS, q),
@@ -54,7 +62,9 @@ export function classifyIntent(query) {
     structure: anyMarkerHits(STRUCTURE_MARKERS, q),
   };
   const count = Object.values(hits).filter(Boolean).length;
-  if (count === 0) return "combined";
-  if (count > 1) return "combined";
-  return hits.concept ? "concept" : hits.source ? "source" : "structure";
+  if (count === 0) return INTENT.combined;
+  if (count > 1) return INTENT.combined;
+  if (hits.concept) return INTENT.concept;
+  if (hits.source) return INTENT.source;
+  return INTENT.structure;
 }

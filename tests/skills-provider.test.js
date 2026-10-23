@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { apply, loadSkillsFrom, name as pluginName } from "../index.js";
+import { apply, loadSkillsCached, loadSkillsFrom, name as pluginName } from "../index.js";
 
 const VALID_SKILL = `---
 name: valid-one
@@ -108,6 +108,40 @@ test("loadSkillsFrom rethrows unexpected read errors", async () => {
     const notDirectory = join(root, "not-a-directory");
     await writeFile(notDirectory, "x", "utf8");
     await assert.rejects(() => loadSkillsFrom(notDirectory), (err) => err.code === "ENOTDIR");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loadSkillsCached returns the same cached arrays across calls (F5)", async () => {
+  const root = await makeRoot();
+  try {
+    await writeSkill(root, "valid-one", VALID_SKILL);
+    const first = await loadSkillsCached(root);
+    const second = await loadSkillsCached(root);
+    // Without the memoized promise these are two distinct arrays.
+    assert.equal(first, second);
+    const providers = [];
+    apply({ skills: { registerProvider: (factory) => providers.push(factory) } });
+    const provider = providers[0]();
+    const listedOnce = await provider.list();
+    const listedTwice = await provider.list();
+    assert.equal(listedOnce, listedTwice);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loadSkillsCached retries after a failed load (F5)", async () => {
+  const root = await makeRoot();
+  try {
+    await writeSkill(root, "a-dir", VALID_SKILL);
+    await writeSkill(root, "b-dir", VALID_SKILL);
+    await assert.rejects(() => loadSkillsCached(root), /duplicate skill name "valid-one"/);
+    // A cached rejected promise would keep failing after the conflict is fixed.
+    await rm(join(root, "b-dir"), { recursive: true, force: true });
+    const skills = await loadSkillsCached(root);
+    assert.deepEqual(skills.map((skill) => skill.name), ["valid-one"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

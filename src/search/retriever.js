@@ -1,6 +1,7 @@
 // Search retriever (P4): wiki-first, source verification, structural queries.
 // Produces a normalized result list with real paths and evidence excerpts.
 
+import { ObsidianError } from "../obsidian/obsidian-client.js";
 import { normalizeEvidence } from "./evidence.js";
 
 // ASCII stopwords are removed only when a space-delimited token matches one
@@ -70,17 +71,24 @@ export class SearchRetriever {
 
   // Run Obsidian simple search and normalize hits.
   // Falls back to per-term search when the full query AND-matches nothing.
+  // The fallback searches are independent, so they run in parallel (E13);
+  // merging stays deterministic because Promise.all preserves term order and
+  // the first hit for a filename wins.
   async _search(query, { max = 10 } = {}) {
     let hits = await this._callSearch(query);
     if (!Array.isArray(hits) || hits.length === 0) {
-      const seen = new Map();
-      for (const term of extractTerms(query)) {
-        const termHits = await this._callSearch(term);
+      const terms = extractTerms(query);
+      const perTerm = await Promise.all(terms.map((term) => this._callSearch(term)));
+      const seen = new Set();
+      const merged = [];
+      for (const termHits of perTerm) {
         for (const item of Array.isArray(termHits) ? termHits : []) {
-          if (!seen.has(item.filename)) seen.set(item.filename, item);
+          if (seen.has(item.filename)) continue;
+          seen.add(item.filename);
+          merged.push(item);
         }
       }
-      hits = [...seen.values()];
+      hits = merged;
     }
     if (!Array.isArray(hits)) return [];
     return hits.slice(0, max).map((h) => ({
@@ -119,9 +127,16 @@ export class SearchRetriever {
     return results.sort((a, b) => rank[a.resultType] - rank[b.resultType]).slice(0, max);
   }
 
-  // Read a note to verify an exact fact or get full context.
+  // Read a note to verify an exact fact or get full context. A 404 is a normal
+  // negative lookup, not a transport failure, so it resolves to null (E17);
+  // other errors still surface.
   async readNote(path) {
-    return this.adapter.read(path);
+    try {
+      return await this.adapter.read(path);
+    } catch (err) {
+      if (err instanceof ObsidianError && err.status === 404) return null;
+      throw err;
+    }
   }
 
   // Structural query: list tags or list files under a folder.

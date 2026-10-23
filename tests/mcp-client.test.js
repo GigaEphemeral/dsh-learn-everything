@@ -3,7 +3,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { McpClient, McpError } from "../src/obsidian/mcp-client.js";
+import {
+  CLIENT_NAME,
+  CLIENT_VERSION,
+  MCP_ENDPOINT,
+  MCP_PROTOCOL_VERSION,
+  McpClient,
+  McpError,
+} from "../src/obsidian/mcp-client.js";
 
 async function startServer(handler) {
   const server = createServer(handler);
@@ -46,11 +53,19 @@ test("call sends the Streamable HTTP headers and returns the JSON-RPC result (C1
     assert.equal(captured.headers.authorization, "Bearer secret");
     assert.equal(captured.headers["mcp-method"], "tools/call");
     assert.equal(captured.headers["mcp-name"], "search");
+    // Wire values come from the exported module constants, not inline literals (C18).
+    assert.equal(captured.headers["mcp-protocol-version"], MCP_PROTOCOL_VERSION);
+    assert.equal(MCP_ENDPOINT, "/mcp/");
     const envelope = JSON.parse(captured.body);
     assert.equal(envelope.jsonrpc, "2.0");
     assert.equal(envelope.method, "tools/call");
     assert.equal(envelope.params.name, "search");
     assert.equal(envelope.params.arguments.query, "x");
+    assert.equal(envelope.params._meta["io.modelcontextprotocol/protocolVersion"], MCP_PROTOCOL_VERSION);
+    assert.deepEqual(envelope.params._meta["io.modelcontextprotocol/clientInfo"], {
+      name: CLIENT_NAME,
+      version: CLIENT_VERSION,
+    });
   } finally {
     await server.close();
   }
@@ -140,6 +155,37 @@ test("a 2xx non-JSON body still raises the parse error code (C14)", async () => 
     await assert.rejects(() => clientFor(server).call("tools/list", {}), (err) => {
       assert.ok(err instanceof McpError);
       assert.equal(err.code, -32700);
+      return true;
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("malformed JSON-RPC errors are normalized to a readable message (C20)", async () => {
+  const server = await startServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const { variant } = JSON.parse(body).params;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: 1, error: variant === "string" ? "boom" : {} }));
+    });
+  });
+  try {
+    const client = clientFor(server);
+    // A string error must not surface as "undefined".
+    await assert.rejects(() => client.call("tools/call", { variant: "string" }), (err) => {
+      assert.ok(err instanceof McpError);
+      assert.match(err.message, /failed: boom/);
+      assert.equal(err.code, undefined);
+      return true;
+    });
+    // An error object without message/code degrades to its JSON form.
+    await assert.rejects(() => client.call("tools/call", { variant: "object" }), (err) => {
+      assert.ok(err instanceof McpError);
+      assert.match(err.message, /failed: \{\}/);
+      assert.equal(err.code, undefined);
       return true;
     });
   } finally {

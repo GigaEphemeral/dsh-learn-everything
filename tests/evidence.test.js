@@ -1,7 +1,7 @@
 // Unit tests for the S1 evidence model.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeEvidence, assessSufficiency } from "../src/search/evidence.js";
+import { GAP_MESSAGES, normalizeEvidence, assessSufficiency } from "../src/search/evidence.js";
 
 test("normalizeEvidence classifies wiki/source/search and keeps the real path", () => {
   const wiki = normalizeEvidence({ path: "wiki/concepts/x.md", excerpt: "e" });
@@ -89,4 +89,28 @@ test("sufficiency requires at least one non-empty excerpt (E4)", () => {
     { exactFact: true },
   );
   assert.equal(exact.sufficient, false);
+});
+
+test("sufficiency gaps expose stable codes with messages (E5)", () => {
+  const wikiNoExcerpt = [normalizeEvidence({ path: "wiki/concepts/x.md", excerpt: "" })];
+  const wikiOnly = [normalizeEvidence({ path: "wiki/concepts/x.md", excerpt: "e" })];
+  const plainOnly = [normalizeEvidence({ path: "notes/x.md", excerpt: "e" })];
+  assert.deepEqual(assessSufficiency("问题", []).gaps, [
+    { code: "no_evidence", message: GAP_MESSAGES.no_evidence },
+  ]);
+  assert.deepEqual(assessSufficiency("解释 x", wikiNoExcerpt).gaps, [
+    { code: "no_excerpt", message: GAP_MESSAGES.no_excerpt },
+  ]);
+  assert.deepEqual(assessSufficiency("x 的版本号", wikiOnly, { exactFact: true }).gaps, [
+    { code: "exact_fact_needs_source", message: GAP_MESSAGES.exact_fact_needs_source },
+  ]);
+  assert.deepEqual(assessSufficiency("x", plainOnly).gaps, [
+    { code: "no_verified_source", message: GAP_MESSAGES.no_verified_source },
+  ]);
+  assert.deepEqual(Object.keys(GAP_MESSAGES).sort(), [
+    "exact_fact_needs_source",
+    "no_evidence",
+    "no_excerpt",
+    "no_verified_source",
+  ]);
 });

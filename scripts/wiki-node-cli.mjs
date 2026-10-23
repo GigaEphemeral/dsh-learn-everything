@@ -4,6 +4,9 @@
 //   OBSIDIAN_API_KEY=... node scripts/wiki-node-cli.mjs random
 //   OBSIDIAN_API_KEY=... node scripts/wiki-node-cli.mjs show <concept-name>
 //
+// Vault layout: the wiki directories default to the compiled KarpathyWiki
+// layout and can be overridden with a comma-separated OBSIDIAN_WIKI_DIRS.
+//
 // Output is always JSON. Errors are printed as {"error": "..."} with a
 // non-zero exit code, so the skill can parse one shape and a shell `set -e`
 // flow still fails.
@@ -12,8 +15,26 @@ import { pathToFileURL } from "node:url";
 import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 
 const BASE_URL = "https://127.0.0.1:27124";
-const WIKI_DIRS = ["wiki/concepts", "wiki/entities", "wiki/sources"];
 const MAX_CONTENT_CHARS = 2000;
+
+// The wiki is compiled into these directories. OBSIDIAN_WIKI_DIRS overrides the
+// layout with a comma-separated list so a differently organised vault needs no
+// code change; the declared order also drives deterministic node enumeration.
+export const DEFAULT_WIKI_DIRS = ["wiki/concepts", "wiki/entities", "wiki/sources"];
+
+export function parseWikiDirs(raw) {
+  if (typeof raw !== "string") return [...DEFAULT_WIKI_DIRS];
+  const dirs = raw
+    .split(",")
+    .map((dir) => dir.trim())
+    .filter((dir) => dir !== "");
+  // A blank/whitespace-only override is a typo rather than "no wiki dirs at
+  // all", so fall back to the default; duplicates are collapsed but the
+  // first-seen order is kept.
+  return [...new Set(dirs.length === 0 ? DEFAULT_WIKI_DIRS : dirs)];
+}
+
+export const WIKI_DIRS = parseWikiDirs(process.env.OBSIDIAN_WIKI_DIRS);
 
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
@@ -47,14 +68,18 @@ export async function listDir(adapter, dir) {
   }
 }
 
+// Enumerate every wiki directory in parallel, then flatten in WIKI_DIRS order
+// (not in completion order) so the node list — and the random pick derived from
+// it — stays stable regardless of which request finishes first.
 export async function collectNodes(adapter) {
+  const listings = await Promise.all(WIKI_DIRS.map((dir) => listDir(adapter, dir)));
   const nodes = [];
-  for (const dir of WIKI_DIRS) {
-    const files = await listDir(adapter, dir);
+  listings.forEach((files, index) => {
+    const dir = WIKI_DIRS[index];
     for (const file of files) {
       nodes.push({ dir, file, path: `${dir}/${file}` });
     }
-  }
+  });
   return nodes;
 }
 
@@ -82,22 +107,38 @@ export async function readNode(adapter, path) {
   return content;
 }
 
+// Shared read path for both modes: read errors and non-string bodies surface
+// identically, and both modes get the same truncation/source metadata.
+export async function loadNode(adapter, node) {
+  const content = await readNode(adapter, node.path);
+  return {
+    content: content.slice(0, MAX_CONTENT_CHARS),
+    truncated: content.length > MAX_CONTENT_CHARS,
+    sourceFile: extractSourceFile(content),
+  };
+}
+
+// One JSON shape for both modes. `keyword` is the file stem for a random node
+// and the requested name for an explicit lookup, so a caller can parse a single
+// shape and still know which node it got.
+function emitNode(node, keyword, loaded) {
+  return {
+    keyword,
+    type: nodeType(node),
+    path: node.path,
+    sourceFile: loaded.sourceFile,
+    content: loaded.content,
+    truncated: loaded.truncated,
+  };
+}
+
 export async function randomNode(adapter) {
   const nodes = await collectNodes(adapter);
   if (nodes.length === 0) {
     throw new Error("wiki is empty; ingest sources first");
   }
   const pick = nodes[Math.floor(Math.random() * nodes.length)];
-  const content = await readNode(adapter, pick.path);
-  return {
-    keyword: nodeName(pick.file),
-    type: nodeType(pick),
-    path: pick.path,
-    sourceFile: extractSourceFile(content),
-    content: content.slice(0, MAX_CONTENT_CHARS),
-    // Signal that the downstream LLM is looking at a partial page.
-    truncated: content.length > MAX_CONTENT_CHARS,
-  };
+  return emitNode(pick, nodeName(pick.file), await loadNode(adapter, pick));
 }
 
 export async function showNode(adapter, name) {
@@ -106,13 +147,7 @@ export async function showNode(adapter, name) {
   if (!match) {
     throw new Error(`node "${name}" not found`);
   }
-  const content = await readNode(adapter, match.path);
-  return {
-    keyword: name,
-    type: nodeType(match),
-    path: match.path,
-    content,
-  };
+  return emitNode(match, name, await loadNode(adapter, match));
 }
 
 function createAdapter(apiKey) {

@@ -19,7 +19,7 @@ function duplicateLabel(duplicate) {
 
 // Gate-1 prompt: title, origin, duplicate signal, the exact target path that
 // will be written, and the preflight warnings raised so far.
-function preflightPrompt(source, pre) {
+export function PREFLIGHT_PROMPT(source, pre) {
   const lines = [
     "确认摄入？",
     `  标题: ${source.title}`,
@@ -34,12 +34,20 @@ function preflightPrompt(source, pre) {
   return lines.join("\n");
 }
 
+// Gate-2 prompt: the create-only plan that will be written and whether to confirm.
+export function WRITE_PROMPT(plan) {
+  return `写入计划：${plan.operation} ${plan.targetPath}\n确认写入？`;
+}
+
 export class IngestPipeline {
-  constructor({ adapter, registry, driver, targetDir = "Sources", task = null }) {
+  // wikiSourcesDir is the vault directory whose basenames feed the slug-duplicate
+  // check. It defaults to "wiki/sources" (the KarpathyWiki source layout).
+  constructor({ adapter, registry, driver, targetDir = "Sources", wikiSourcesDir = "wiki/sources", task = null }) {
     this.adapter = adapter;
     this.registry = registry;
     this.driver = driver;
     this.targetDir = targetDir;
+    this.wikiSourcesDir = wikiSourcesDir;
     this.task = task;
   }
 
@@ -47,6 +55,22 @@ export class IngestPipeline {
   async _confirm(callback, prompt) {
     if (typeof callback !== "function") return false;
     return (await callback(prompt)) === true;
+  }
+
+  // Run one confirmation gate. A thrown callback (CLI/agent failure) is a failed
+  // gate, not a task stuck awaiting a decision: fail the task and report it.
+  async _gate(stage, callback, prompt, report) {
+    let answer;
+    try {
+      answer = await this._confirm(callback, prompt);
+    } catch (err) {
+      return { failed: this._fail(stage, err, report) };
+    }
+    if (!answer) {
+      if (this.task) this.task.transition("cancelled");
+      return { cancelled: true };
+    }
+    return { ok: true };
   }
 
   _fail(stage, err, extra = {}) {
@@ -132,6 +156,7 @@ export class IngestPipeline {
         registry: this.registry,
         adapter: this.adapter,
         targetDir: this.targetDir,
+        wikiSourcesDir: this.wikiSourcesDir,
         slug,
       });
       if (t) t.transition("preflighted").log("preflight", JSON.stringify(pre.duplicate));
@@ -142,9 +167,12 @@ export class IngestPipeline {
 
     // Gate 1: persist the "blocked on confirmation" state before prompting.
     if (t) t.transition("awaiting_confirmation");
-    const okPreflight = await this._confirm(confirm, preflightPrompt(source, pre));
-    if (!okPreflight) {
-      if (t) t.transition("cancelled");
+    const gateOne = await this._gate("confirm-preflight", confirm, PREFLIGHT_PROMPT(source, pre), {
+      preflight: pre,
+      warnings,
+    });
+    if (gateOne.failed) return gateOne.failed;
+    if (gateOne.cancelled) {
       return { status: "cancelled", stage: "confirm-preflight", preflight: pre, warnings };
     }
 
@@ -163,9 +191,13 @@ export class IngestPipeline {
 
     // Gate 2: persist the pending write confirmation before prompting.
     if (t) t.transition("awaiting_write_confirmation");
-    const okWrite = await this._confirm(confirm, `写入计划：${plan.operation} ${plan.targetPath}\n确认写入？`);
-    if (!okWrite) {
-      if (t) t.transition("cancelled");
+    const gateTwo = await this._gate("confirm-write", confirm, WRITE_PROMPT(plan), {
+      preflight: pre,
+      plan,
+      warnings,
+    });
+    if (gateTwo.failed) return gateTwo.failed;
+    if (gateTwo.cancelled) {
       return { status: "cancelled", stage: "confirm-write", preflight: pre, plan, warnings };
     }
 
@@ -179,7 +211,9 @@ export class IngestPipeline {
         return { status: "needs_review", reason: "target exists", stage: "write", preflight: pre, plan, warnings };
       }
       if (t) t.transition("failed");
-      throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (t) t.log("write", message);
+      throw new Error(`write failed for ${plan.targetPath}: ${message}`, { cause: err });
     }
 
     // Verify the write, then record it before compiling so a later compile

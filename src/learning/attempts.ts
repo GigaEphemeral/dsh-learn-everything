@@ -5,6 +5,7 @@ import type { LearningDb } from '../db/client.js';
 import type { AttemptResult, PracticePhase } from './types.js';
 import { ATTEMPT_RESULTS, PRACTICE_PHASES, isAttemptResult, isPracticePhase } from './types.js';
 import { safeLimit } from './limits.js';
+import { toCanonicalIso } from './time.js';
 
 export interface NewAttempt {
   attemptId: string;
@@ -16,6 +17,10 @@ export interface NewAttempt {
   // Defaults to "first" (the answer to a freshly generated question) when the
   // caller omits it (e.g. JSON payload without the optional field).
   phase?: PracticePhase;
+  // When the answer was actually given. Omitted means "now"; an explicit value
+  // supports delayed/backfilled writes so a row inserted later does not claim a
+  // later answer time (A12). Must be canonical UTC ISO-8601 (A29 form).
+  answeredAt?: string;
 }
 
 // Typed projection of an attempts row. The internal surrogate `id` (insert
@@ -62,6 +67,13 @@ function requireQuestionVersion(value: unknown): number {
   return value;
 }
 
+// A caller-supplied answer time must be indistinguishable from what the store
+// writes itself, otherwise recentFor's answered_at ordering would mix two
+// timestamp shapes and mis-order history.
+function requireAnsweredAt(value: unknown): string {
+  return toCanonicalIso(value, 'attempt.record answeredAt');
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -79,12 +91,13 @@ export class AttemptStore {
     const score = a.score === undefined ? null : a.score;
     const answerSummary = a.answerSummary === undefined ? null : a.answerSummary;
     const phase = a.phase === undefined ? 'first' : requirePhase(a.phase);
+    const answeredAt = a.answeredAt === undefined ? new Date().toISOString() : requireAnsweredAt(a.answeredAt);
     try {
       this.ldb.db
         .prepare(
           'INSERT INTO attempts (attempt_id, question_id, question_version, answered_at, result, score, answer_summary, phase) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(attemptId, questionId, questionVersion, new Date().toISOString(), result, score, answerSummary, phase);
+        .run(attemptId, questionId, questionVersion, answeredAt, result, score, answerSummary, phase);
     } catch (err) {
       // Keep the raw constraint/IO cause but make the failure attributable.
       throw new Error(
@@ -94,9 +107,12 @@ export class AttemptStore {
     }
   }
 
+  // Newest answer first by wall-clock time, not by insert order: backfilled
+  // rows inserted later must not jump ahead of answers given after them (A11).
+  // Insert id is only the tie-breaker for identical timestamps.
   recentFor(questionId: string, limit = 10): AttemptRow[] {
     return this.ldb.db
-      .prepare('SELECT attempt_id, question_id, question_version, answered_at, result, score, answer_summary, phase FROM attempts WHERE question_id = ? ORDER BY id DESC LIMIT ?')
+      .prepare('SELECT attempt_id, question_id, question_version, answered_at, result, score, answer_summary, phase FROM attempts WHERE question_id = ? ORDER BY answered_at DESC, id DESC LIMIT ?')
       .all(questionId, safeLimit(limit, 10)) as unknown as AttemptRow[];
   }
 

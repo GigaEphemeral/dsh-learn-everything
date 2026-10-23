@@ -65,6 +65,20 @@ test("external state assignment is blocked; only transition() moves state", () =
   assert.equal(task.state, "pending");
 });
 
+test("transition records a state_change step with from/to and a timestamp", () => {
+  const task = makeTask();
+  task.transition("preflighted");
+  const last = task.steps.at(-1);
+  assert.equal(last.step, "state_change");
+  assert.deepEqual(last.detail, { from: "pending", to: "preflighted" });
+  assert.equal(last.at, task.updatedAt);
+  assert.ok(!Number.isNaN(Date.parse(last.at)));
+  // An illegal transition must not append an audit step.
+  const before = task.steps.length;
+  assert.throws(() => task.transition("completed"), /illegal task transition/);
+  assert.equal(task.steps.length, before);
+});
+
 test("fromJSON restores a persisted task and validates its fields", () => {
   const task = makeTask();
   task.transition("preflighted").log("preflight", "ok");
@@ -73,12 +87,16 @@ test("fromJSON restores a persisted task and validates its fields", () => {
   const restored = IngestTask.fromJSON(JSON.parse(JSON.stringify(task.toJSON())));
   assert.equal(restored.taskId, "t1");
   assert.equal(restored.state, "awaiting_confirmation");
-  assert.equal(restored.steps.length, 1);
-  assert.equal(restored.steps[0].step, "preflight");
+  assert.equal(restored.steps.length, 3);
+  assert.equal(restored.steps[0].step, "state_change");
+  assert.deepEqual(restored.steps[0].detail, { from: "pending", to: "preflighted" });
+  assert.equal(restored.steps[1].step, "preflight");
+  assert.deepEqual(restored.steps[2].detail, { from: "preflighted", to: "awaiting_confirmation" });
   assert.equal(restored.createdAt, task.createdAt);
   assert.equal(restored.updatedAt, task.updatedAt);
   restored.transition("cancelled");
   assert.equal(restored.state, "cancelled");
+  assert.equal(restored.steps.at(-1).step, "state_change");
 
   assert.throws(() => IngestTask.fromJSON(null), /data must be an object/);
   assert.throws(() => IngestTask.fromJSON([]), /data must be an object/);

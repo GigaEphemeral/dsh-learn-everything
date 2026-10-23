@@ -17,6 +17,18 @@ export const WIKI_DIR_KEYS = Object.freeze({
 
 export const INGEST_ACTIVE_FILE = "karpathywiki:ingest-active-file";
 
+// Ingest polling has its own failure mode: nothing compiled before the
+// deadline. A dedicated error type/code lets callers distinguish that from
+// transport or MCP failures (D6).
+export class WikiIngestTimeoutError extends Error {
+  constructor(timeoutMs) {
+    super(`ingest produced no wiki pages within ${timeoutMs}ms`);
+    this.name = "WikiIngestTimeoutError";
+    this.code = "WIKI_INGEST_TIMEOUT";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 // Environment-driven defaults so each user can tune the wait without editing code.
 // Documented in .env.example; constructor options always take precedence.
 function envNumber(name, fallback) {
@@ -68,21 +80,27 @@ export class KarpathyDriver {
     this.settleMs = positiveNumber(settleMs, DEFAULT_INGEST_SETTLE_MS);
   }
 
-  // Snapshot current files in the three wiki output directories.
+  // Snapshot current files in the three wiki output directories. The three list
+  // calls are independent, so they run in parallel (D5). A missing directory
+  // (404) degrades to an empty set; every other failure is rethrown.
   async snapshotWiki() {
-    const snap = {};
-    for (const dir of WIKI_DIRS) {
-      try {
-        const { files } = await this.adapter.list(dir);
-        snap[dir] = new Set(files ?? []);
-      } catch (err) {
-        if (err instanceof ObsidianError && err.status === 404) {
-          snap[dir] = new Set();
-        } else {
+    const snapshots = await Promise.all(
+      WIKI_DIRS.map(async (dir) => {
+        try {
+          const { files } = await this.adapter.list(dir);
+          return new Set(files ?? []);
+        } catch (err) {
+          if (err instanceof ObsidianError && err.status === 404) return new Set();
           throw err;
         }
-      }
-    }
+      }),
+    );
+    // Build the snapshot from the fixed directory order so its keys stay
+    // deterministic regardless of which request resolves first.
+    const snap = {};
+    WIKI_DIRS.forEach((dir, index) => {
+      snap[dir] = snapshots[index];
+    });
     return snap;
   }
 
@@ -129,6 +147,6 @@ export class KarpathyDriver {
       }
       await sleep(pollIntervalMs);
     }
-    throw new Error(`ingest produced no wiki pages within ${timeoutMs}ms`);
+    throw new WikiIngestTimeoutError(timeoutMs);
   }
 }

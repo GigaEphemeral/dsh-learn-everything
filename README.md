@@ -12,7 +12,7 @@ flows: ingest, search, and daily practice. DSH is the single entry point; Obsidi
 - Obsidian running with the formal vault (learnEverything) open and these plugins enabled:
   `obsidian-local-rest-api` (v5.5.2) and `karpathywiki` (v1.28.0)
 - API key: Obsidian → Settings → Local REST API → API key
-- Node.js ≥ 20 (v24 on the dev machine)
+- Node.js ≥ 22.6 (v24 on the dev machine)
 
 ## Configuration (`code/.env`)
 ```bash
@@ -28,6 +28,9 @@ cp .env.example .env   # fill in OBSIDIAN_API_KEY
 | OBSIDIAN_INGEST_POLL_INTERVAL_MS | ms between wiki output folder checks | 10000 |
 | OBSIDIAN_INGEST_SETTLE_MS | ms to keep waiting after the first new page appears | 60000 |
 | OBSIDIAN_REVIEW_W_OVERDUE / WEAKNESS / COVERAGE / NOVELTY | Daily practice selection weights | 1.0 / 0.8 / 0.5 / 0.3 |
+| OBSIDIAN_REVIEW_WEAKNESS_WINDOW | Recent attempts used for the weakness score | 3 |
+| OBSIDIAN_LEARNING_DB | SQLite learning database path | `<state dir>/learning.db` |
+| OBSIDIAN_WIKI_DIRS | Wiki folders sampled by the daily-practice node picker | wiki/concepts,wiki/entities,wiki/sources |
 | OBSIDIAN_STATE_DIR | Runtime state dir (ingest registry, attempts, review) | code/.state |
 
 ## DSH plugin structure

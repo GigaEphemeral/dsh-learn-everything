@@ -11,7 +11,7 @@ Obsidian 是正式知识资产的权威存储。
 ## 依赖
 - Obsidian 运行中，打开正式 Vault（learnEverything），启用插件：`obsidian-local-rest-api`（v5.5.2）与 `karpathywiki`（v1.28.0）
 - API key：Obsidian → 设置 → Local REST API → API key
-- Node.js ≥ 20（本机 v24）
+- Node.js ≥ 22.6（本机 v24）
 
 ## 配置（`code/.env`）
 ```bash
@@ -27,6 +27,9 @@ cp .env.example .env   # 填入 OBSIDIAN_API_KEY
 | OBSIDIAN_INGEST_POLL_INTERVAL_MS | 轮询 wiki 产物目录的间隔毫秒数 | 10000 |
 | OBSIDIAN_INGEST_SETTLE_MS | 首个新页面出现后继续等待的沉降毫秒数 | 60000 |
 | OBSIDIAN_REVIEW_W_OVERDUE / WEAKNESS / COVERAGE / NOVELTY | 每日练习选题权重 | 1.0 / 0.8 / 0.5 / 0.3 |
+| OBSIDIAN_REVIEW_WEAKNESS_WINDOW | 薄弱度评分参考的近期作答数 | 3 |
+| OBSIDIAN_LEARNING_DB | SQLite 学习数据库路径 | `<状态目录>/learning.db` |
+| OBSIDIAN_WIKI_DIRS | 每日练习抽节点所使用的 wiki 目录（逗号分隔） | wiki/concepts,wiki/entities,wiki/sources |
 | OBSIDIAN_STATE_DIR | 运行状态目录（摄入注册表、作答、复习） | code/.state |
 
 ## DSH 插件结构

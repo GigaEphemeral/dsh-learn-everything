@@ -1,7 +1,9 @@
-// Regression tests for the wiki-node CLI (G14/G16/G17/G18) and for the
-// ingest CLI confirmation gate (G3). The CLI scripts export their helpers and
-// guard their main flow, so the behaviors are tested with fake adapters and
-// fake stdin/stdout: no Obsidian instance, no network, no vault access.
+// Regression tests for the wiki-node CLI (G14/G16/G17/G18), for the P2 CLI
+// hardening wave (G15 parallel listing, G19 overridable vault layout, G20 shared
+// random/show pipeline) and for the ingest CLI confirmation gate (G3). The CLI
+// scripts export their helpers and guard their main flow, so the behaviors are
+// tested with fake adapters and fake stdin/stdout: no Obsidian instance, no
+// network, no vault access.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -9,7 +11,17 @@ import { PassThrough } from "node:stream";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ObsidianError } from "../src/obsidian/obsidian-adapter.js";
-import { extractSourceFile, listDir, readNode, randomNode, showNode } from "../scripts/wiki-node-cli.mjs";
+import {
+  DEFAULT_WIKI_DIRS,
+  WIKI_DIRS,
+  collectNodes,
+  extractSourceFile,
+  listDir,
+  parseWikiDirs,
+  readNode,
+  randomNode,
+  showNode,
+} from "../scripts/wiki-node-cli.mjs";
 import { createConfirm } from "../scripts/ingest-cli.mjs";
 
 const CODE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,6 +82,74 @@ test("listDir treats only a 404 as an empty directory", async () => {
       assert.equal(err.cause.status, 401);
       return true;
     },
+  );
+});
+
+test("parseWikiDirs normalises the override and falls back to the default layout", () => {
+  assert.deepEqual(DEFAULT_WIKI_DIRS, ["wiki/concepts", "wiki/entities", "wiki/sources"]);
+  // No override (undefined/non-string/blank) means the compiled wiki layout.
+  assert.deepEqual(parseWikiDirs(undefined), DEFAULT_WIKI_DIRS);
+  assert.deepEqual(parseWikiDirs("   "), DEFAULT_WIKI_DIRS);
+  assert.deepEqual(parseWikiDirs(" , ,"), DEFAULT_WIKI_DIRS);
+  // Entries are trimmed, blanks dropped and duplicates collapsed in first-seen order.
+  assert.deepEqual(parseWikiDirs(" wiki/a , wiki/b , wiki/a "), ["wiki/a", "wiki/b"]);
+  assert.deepEqual(parseWikiDirs(WIKI_DIRS.join(",")), WIKI_DIRS);
+});
+
+test("OBSIDIAN_WIKI_DIRS overrides the exported WIKI_DIRS layout", () => {
+  const moduleUrl = new URL("../scripts/wiki-node-cli.mjs", import.meta.url).href;
+  const script = `import(${JSON.stringify(moduleUrl)}).then((m) => process.stdout.write(JSON.stringify(m.WIKI_DIRS)))`;
+  const baseEnv = { ...process.env };
+  delete baseEnv.OBSIDIAN_WIKI_DIRS;
+  const run = (env) =>
+    spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: CODE_DIR, encoding: "utf8", env });
+
+  const defaults = run(baseEnv);
+  assert.equal(defaults.status, 0, defaults.stderr);
+  assert.deepEqual(JSON.parse(defaults.stdout), DEFAULT_WIKI_DIRS);
+
+  const custom = run({ ...baseEnv, OBSIDIAN_WIKI_DIRS: "wiki/notes, wiki/index" });
+  assert.equal(custom.status, 0, custom.stderr);
+  assert.deepEqual(JSON.parse(custom.stdout), ["wiki/notes", "wiki/index"]);
+});
+
+test("collectNodes lists the wiki dirs in parallel and keeps WIKI_DIRS order", { timeout: 5000 }, async () => {
+  const started = [];
+  let markAllStarted;
+  const allStarted = new Promise((resolveAll) => {
+    markAllStarted = resolveAll;
+  });
+  // A serial implementation cannot start dir N+1 until dir N resolves, so it
+  // never reaches allStarted and fails with this explicit error instead of
+  // hanging the suite.
+  let serialTimer;
+  const serialListing = new Promise((_, reject) => {
+    serialTimer = setTimeout(
+      () => reject(new Error("listDir calls are serial: the next dir only started after the previous resolved")),
+      250,
+    );
+  });
+  const adapter = {
+    list: (dir) =>
+      new Promise((resolveList, rejectList) => {
+        started.push(dir);
+        if (started.length === WIKI_DIRS.length) markAllStarted();
+        Promise.race([allStarted, serialListing]).then(() => {
+          // Resolve in reverse declaration order: the flatten must not depend on
+          // which request finishes first.
+          const index = WIKI_DIRS.indexOf(dir);
+          setTimeout(() => resolveList({ files: [`${index}.md`] }), (WIKI_DIRS.length - index) * 10);
+        }, rejectList);
+      }),
+  };
+
+  const nodes = await collectNodes(adapter);
+  clearTimeout(serialTimer);
+  assert.deepEqual(started, WIKI_DIRS, "every wiki dir must be listed before any listing resolves");
+  assert.deepEqual(
+    nodes.map((node) => node.path),
+    WIKI_DIRS.map((dir, index) => `${dir}/${index}.md`),
+    "nodes must be flattened in WIKI_DIRS order, not completion order",
   );
 });
 
@@ -138,6 +218,21 @@ test("randomNode and showNode surface empty wiki / missing nodes instead of empt
   assert.equal(node.path, "wiki/sources/Foo.md");
   assert.equal(node.content, "body");
   await assert.rejects(() => showNode(found, "Bar"), /node "Bar" not found/);
+});
+
+test("showNode reuses randomNode's shape: source file, truncation signal and echoed keyword", async () => {
+  const longBody = `---\nsource_file: "[[Sources/foo.md]]"\n---\n${"y".repeat(2500)}`;
+  const adapter = {
+    list: async (dir) => ({ files: dir === "wiki/sources" ? ["Foo.md"] : [] }),
+    read: async () => longBody,
+  };
+  const node = await showNode(adapter, "Foo");
+  assert.equal(node.keyword, "Foo", "show must echo the requested name as keyword");
+  assert.equal(node.type, "sources");
+  assert.equal(node.path, "wiki/sources/Foo.md");
+  assert.equal(node.sourceFile, "Sources/foo.md", "show must report the source note like random");
+  assert.equal(node.content.length, 2000);
+  assert.equal(node.truncated, true, "show must signal a partial page like random");
 });
 
 function startConfirm(options) {
