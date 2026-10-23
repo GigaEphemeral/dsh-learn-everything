@@ -3,6 +3,7 @@
 // backend; the API key never reaches the browser.
 
 import { createElement, useState, useEffect } from 'react'
+import { routeErrorText } from '../sidebar/route-errors.js'
 
 const DIRS = ['wiki/concepts', 'wiki/entities', 'wiki/sources', 'Sources']
 
@@ -15,25 +16,50 @@ function apiUrl(path, params) {
 async function getJson(url) {
   try {
     const res = await fetch(url, { headers: { accept: 'application/json' } })
-    return await res.json()
+    let body = null
+    try { body = await res.json() } catch { /* non-JSON error body */ }
+    if (!res.ok || body?.ok === false) {
+      return { ok: false, error: body?.error ?? { code: 'http-' + res.status, message: 'HTTP ' + res.status } }
+    }
+    return body ?? { ok: false, error: { code: 'empty', message: 'empty response' } }
   } catch (err) {
-    return { ok: false, error: { message: String(err) } }
+    return { ok: false, error: { code: 'network', message: String(err) } }
   }
+}
+
+// User-facing explanation for the route envelopes (missing key, host fence,
+// backend failure). The key itself never reaches the browser.
+function errorText(j) {
+  return routeErrorText(j?.error)
+}
+
+function ErrorBanner(props) {
+  if (!props.text) return null
+  return createElement('div', {
+    style: {
+      margin: '8px', padding: '6px 8px', borderRadius: 4, fontSize: 12,
+      background: '#3a2323', color: '#ffb4b4', border: '1px solid #5a2a2a',
+    },
+  }, props.text)
 }
 
 function DirList(props) {
   const onOpen = props.onOpen
   const [lists, setLists] = useState({})
+  const [error, setError] = useState('')
   useEffect(() => {
     for (const dir of DIRS) {
       getJson(apiUrl('/obsidian/api/list', { dir })).then((j) => {
         if (j.ok && Array.isArray(j.value?.files)) {
           setLists((prev) => Object.assign({}, prev, { [dir]: j.value.files }))
+        } else if (!j.ok) {
+          setError(errorText(j))
         }
       })
     }
   }, [])
   return createElement('div', { style: { padding: 8, fontSize: 13 } },
+    createElement(ErrorBanner, { text: error }),
     ...DIRS.map((dir) =>
       createElement('div', { key: dir, style: { marginBottom: 10 } },
         createElement('b', null, dir),
@@ -51,13 +77,17 @@ function SearchView(props) {
   const onOpen = props.onOpen
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
+  const [error, setError] = useState('')
   const run = () => {
     if (!q.trim()) return
+    setError('')
     getJson(apiUrl('/obsidian/api/search', { q })).then((j) => {
       if (j.ok) setResults(j.value?.results ?? [])
+      else setError(errorText(j))
     })
   }
   return createElement('div', { style: { padding: 8, fontSize: 13 } },
+    createElement(ErrorBanner, { text: error }),
     createElement('input', { value: q, placeholder: '搜索知识库…', onInput: (e) => setQ(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') run() }, style: { width: '100%', boxSizing: 'border-box', padding: 4 } }),
     createElement('button', { onClick: run, style: { marginTop: 4 } }, '搜索'),
     results.map((r) =>
@@ -75,7 +105,7 @@ function NoteView(props) {
   useEffect(() => {
     getJson(apiUrl('/obsidian/api/read', { path })).then((j) => {
       if (j.ok) setContent(j.value?.content ?? '(empty)')
-      else setContent('(not found)')
+      else setContent(errorText(j))
     })
   }, [path])
   return createElement('div', { style: { padding: 8, fontSize: 12 } },
@@ -90,14 +120,17 @@ function NoteView(props) {
 
 function GraphView() {
   const [data, setData] = useState(null)
+  const [error, setError] = useState('')
   useEffect(() => {
     getJson(apiUrl('/obsidian/graph')).then((j) => {
       if (j.ok) setData(encodeURIComponent(JSON.stringify(j.value)))
+      else setError(errorText(j))
     })
   }, [])
   return createElement('div', { style: { padding: 8 } },
+    createElement(ErrorBanner, { text: error }),
     data === null
-      ? createElement('span', null, '图谱加载中…')
+      ? createElement('span', null, error ? '图谱不可用' : '图谱加载中…')
       : createElement('iframe', { src: apiUrl('/obsidian/graph-page', { data }), style: { width: '100%', height: 520, border: 0, borderRadius: 6 } }),
   )
 }

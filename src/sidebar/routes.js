@@ -1,8 +1,14 @@
 // R2 sidebar data routes (S4): serve Obsidian knowledge data to the panel
 // client over same-origin fenced routes. The Obsidian API key stays in the
 // backend; the browser never sees it. Route contract mirrors the host
-// SidebarWebRoute ({ kind, path, handler }) and fences every request with
-// ctx.connection.requestRejection.
+// SidebarWebRoute ({ kind, path, handler }) and fences every request with the
+// host connection policy.
+//
+// Routes are registered even when no API key is configured yet: the data
+// routes answer 503 obsidian-not-configured so the panel can explain what to
+// set, instead of a 404 that looks like "the plugin did not load". The key and
+// base URL are resolved per request, so a volatile settings edit applies
+// without restarting the host.
 
 import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../obsidian/obsidian-adapter.js";
 import { SearchRetriever } from "../search/retriever.js";
@@ -11,14 +17,9 @@ import { assessSufficiency } from "../search/evidence.js";
 import { buildGraph } from "../wiki/graph.js";
 import { readCompileStatus } from "../obsidian/compile-status.js";
 import { WIKI_DIRS } from "../wiki/karpathy-driver.js";
+import { NOT_CONFIGURED_CODE, NOT_CONFIGURED_MESSAGE } from "./route-errors.js";
 
-async function readBody(req) {
-  let raw = "";
-  for await (const chunk of req) {
-    raw += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-  }
-  return raw;
-}
+const DEFAULT_BASE_URL = "https://127.0.0.1:27124";
 
 function writeJson(res, status, data) {
   res.writeHead(status, { "content-type": "application/json" });
@@ -27,6 +28,10 @@ function writeJson(res, status, data) {
 
 function writeError(res, status, code, message) {
   writeJson(res, status, { ok: false, error: { code, message } });
+}
+
+function notConfigured(res) {
+  writeError(res, 503, NOT_CONFIGURED_CODE, NOT_CONFIGURED_MESSAGE);
 }
 
 function queryParams(url) {
@@ -39,18 +44,46 @@ function queryParams(url) {
 }
 
 // One shared Obsidian data layer: client + adapter + retriever.
-export function createObsidianData({ apiKey, baseUrl = "https://127.0.0.1:27124", compileStatusFile = null }) {
+export function createObsidianData({ apiKey, baseUrl = DEFAULT_BASE_URL, compileStatusFile = null }) {
   const client = new ObsidianClient({ baseUrl, apiKey });
   const adapter = new ObsidianAdapter(client);
   const retriever = new SearchRetriever({ adapter });
   return { client, adapter, retriever, compileStatusFile };
 }
 
+// Resolve the data layer for one request. Returning null means "not
+// configured", which the data routes map to 503.
+function dataAccessor(source) {
+  if (typeof source === "function") {
+    return () => {
+      try {
+        return source();
+      } catch {
+        return null;
+      }
+    };
+  }
+  return () => source;
+}
+
 // Route handlers keyed by name; each (req, res) writes its JSON envelope.
-export function makeRouteHandlers(data) {
+// `source` is either a data object (tests, static wiring) or a getter that
+// returns the current data layer or null when unconfigured.
+export function makeRouteHandlers(source) {
+  const current = dataAccessor(source);
+  const requireData = (res) => {
+    const data = current();
+    if (data === null || data === undefined) {
+      notConfigured(res);
+      return null;
+    }
+    return data;
+  };
   const handlers = {};
 
   handlers.list = async (req, res) => {
+    const data = requireData(res);
+    if (!data) return;
     const dir = queryParams(req.url).get("dir") ?? "";
     try {
       const { files } = await data.adapter.list(dir);
@@ -62,6 +95,8 @@ export function makeRouteHandlers(data) {
   };
 
   handlers.search = async (req, res) => {
+    const data = requireData(res);
+    if (!data) return;
     const q = queryParams(req.url).get("q") ?? "";
     if (!q.trim()) return writeError(res, 400, "bad-request", "query is empty");
     try {
@@ -75,6 +110,8 @@ export function makeRouteHandlers(data) {
   };
 
   handlers.read = async (req, res) => {
+    const data = requireData(res);
+    if (!data) return;
     const path = queryParams(req.url).get("path") ?? "";
     if (!path) return writeError(res, 400, "bad-request", "path is empty");
     try {
@@ -87,6 +124,8 @@ export function makeRouteHandlers(data) {
   };
 
   handlers.graph = async (req, res) => {
+    const data = requireData(res);
+    if (!data) return;
     try {
       const pages = [];
       for (const dir of WIKI_DIRS) {
@@ -124,7 +163,10 @@ export function makeRouteHandlers(data) {
 
   handlers.compileStatus = async (req, res) => {
     try {
-      const filePath = queryParams(req.url).get("file") ?? data.compileStatusFile;
+      // Compile status comes from a local file, so it works without an API key;
+      // only the default path comes from the (possibly absent) data layer.
+      const data = current();
+      const filePath = queryParams(req.url).get("file") ?? data?.compileStatusFile ?? null;
       const status = filePath ? await readCompileStatus(filePath) : { stages: [], last: null };
       writeJson(res, 200, { ok: true, value: status });
     } catch (err) {
@@ -143,20 +185,69 @@ function localHostFence(req) {
   return host === "localhost" || host.startsWith("localhost:") || host === "127.0.0.1" || host.startsWith("127.0.0.1:");
 }
 
+// Read a service without the Cordis property-getter semantics: an undeclared
+// property read can throw, which previously escaped the route handler and made
+// the web server answer an empty 400.
+function serviceOf(ctx, name) {
+  if (typeof ctx?.get === "function") return ctx.get(name);
+  return ctx?.[name];
+}
+
 // Register every route with host fencing. ctx must be the injected context
-// with webServer available. Fencing prefers the host connection service
-// (requestRejection) and falls back to a local-loopback host check. Returns
-// the route registration disposers.
-export function registerObsidianRoutes(ctx, { apiKey, baseUrl, compileStatusFile = null }) {
-  const data = createObsidianData({ apiKey, baseUrl, compileStatusFile });
-  const handlers = makeRouteHandlers(data);
+// with webServer available. Options are either a static
+// { apiKey, baseUrl, compileStatusFile } or { getConfig() } returning the
+// current config, so volatile settings edits are visible per request.
+// Returns the route registration disposers.
+export function registerObsidianRoutes(ctx, options = {}) {
   if (typeof ctx?.webServer?.register !== "function") {
     return [];
   }
-  const fence = (req) =>
-    typeof ctx.connection?.requestRejection === "function"
-      ? ctx.connection.requestRejection(req) === undefined
-      : localHostFence(req);
+  const getConfig =
+    typeof options === "function"
+      ? options
+      : typeof options.getConfig === "function"
+        ? options.getConfig
+        : () => options;
+
+  const createData = typeof options.createData === "function" ? options.createData : createObsidianData;
+  let cachedData = null;
+  let cachedKey = "";
+  const resolveData = () => {
+    const config = getConfig() ?? {};
+    const apiKey = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
+    if (!apiKey) return null;
+    const baseUrl = (typeof config.baseUrl === "string" && config.baseUrl.trim()) || DEFAULT_BASE_URL;
+    const key = apiKey + "\n" + baseUrl + "\n" + String(config.compileStatusFile ?? "");
+    if (key !== cachedKey) {
+      cachedData = createData({ apiKey, baseUrl, compileStatusFile: config.compileStatusFile ?? null });
+      cachedKey = key;
+    }
+    return cachedData;
+  };
+
+  const handlers = makeRouteHandlers(resolveData);
+  const fence = (req) => {
+    let connection;
+    try {
+      // An undeclared Cordis property can throw; that is not "no host
+      // connection" (which is undefined and falls back to the loopback check),
+      // so it fails closed.
+      connection = serviceOf(ctx, "connection");
+    } catch {
+      return 403;
+    }
+    try {
+      if (connection && typeof connection.requestRejection === "function") {
+        const rejection = connection.requestRejection(req);
+        return rejection === undefined ? undefined : rejection;
+      }
+      return localHostFence(req) ? undefined : 403;
+    } catch {
+      // Fencing must fail closed, never take the route down with a 400.
+      return 403;
+    }
+  };
+
   const disposers = [];
   const mounts = [
     ["/obsidian/api/list", handlers.list],
@@ -172,12 +263,29 @@ export function registerObsidianRoutes(ctx, { apiKey, baseUrl, compileStatusFile
         ctx.webServer.register({
           kind: "exact",
           path,
-          handler: (req, res) => {
-            if (!fence(req)) {
-              writeError(res, 403, "forbidden", "request rejected by host connection policy");
+          handler: async (req, res) => {
+            const rejection = fence(req);
+            if (rejection !== undefined) {
+              // requestRejection yields 401/403; anything else (including a
+              // thrown/opaque result) is a forbidden request, never a 400.
+              const status = rejection === 401 ? 401 : 403;
+              writeError(
+                res,
+                status,
+                status === 401 ? "unauthorized" : "forbidden",
+                "request rejected by the host connection policy",
+              );
               return;
             }
-            return handler(req, res);
+            try {
+              await handler(req, res);
+            } catch (err) {
+              // The web server answers an empty 400 when a route handler
+              // rejects; keep the cause visible and the envelope consistent.
+              console.warn(`[dsh-learn-everything] obsidian route ${path} failed:`, err?.stack || err);
+              if (!res.headersSent) writeError(res, 500, "obsidian-route", String(err?.message || err));
+              else res.destroy();
+            }
           },
         }),
         "dsh-learn-everything: /obsidian route " + path,

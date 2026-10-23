@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeRouteHandlers, registerObsidianRoutes } from "../src/sidebar/routes.js";
+import { NOT_CONFIGURED_CODE, routeErrorText } from "../src/sidebar/route-errors.js";
 
 function fakeReq(url) {
   return { url, method: "GET", headers: {}, [Symbol.asyncIterator]: async function* () {} };
@@ -65,19 +66,90 @@ test("graph route builds the wiki link graph", async () => {
   assert.ok(Array.isArray(v.edges));
 });
 
-test("registerObsidianRoutes fences requests and registers five routes", () => {
+test("registerObsidianRoutes fences requests and registers six routes", async () => {
   const registered = [];
   const ctx = {
-    effect: (fn, label) => fn(),
+    effect: (fn) => fn(),
     webServer: { register: (route) => { registered.push(route); return () => {}; } },
-    connection: { requestRejection: (req) => (req.headers.host === "evil" ? new Error("reject") : undefined) },
+    get: (name) => (name === "connection"
+      ? { requestRejection: (req) => (req.headers.host === "evil" ? 403 : undefined) }
+      : undefined),
   };
-  registerObsidianRoutes(ctx, { apiKey: "k" });
+  registerObsidianRoutes(ctx, {
+    apiKey: "k",
+    createData: () => fakeData(),
+  });
   assert.equal(registered.length, 6);
-  // fence: rejected request -> 403
+  // A fenced request is answered as a JSON envelope, not an empty 400.
   const route = registered[0];
   const res = fakeRes();
-  route.handler(fakeReq("/obsidian/api/list").headers === undefined ? { ...fakeReq("/obsidian/api/list"), headers: { host: "evil" } } : fakeReq("/obsidian/api/list"), res);
-  // rejected: run synchronously via the async handler
-  return Promise.resolve();
+  await route.handler({ ...fakeReq("/obsidian/api/list"), headers: { host: "evil" } }, res);
+  assert.equal(res.statusCode, 403);
+  assert.equal(JSON.parse(res.body).error.code, "forbidden");
+});
+
+test("routes stay registered without a key and answer 503 instead of 404", async () => {
+  const registered = [];
+  const ctx = {
+    effect: (fn) => fn(),
+    webServer: { register: (route) => { registered.push(route); return () => {}; } },
+    get: () => undefined,
+  };
+  registerObsidianRoutes(ctx, {
+    getConfig: () => ({ apiKey: "" }),
+    createData: () => fakeData(),
+  });
+  assert.equal(registered.length, 6);
+  const res = fakeRes();
+  await registered[0].handler({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers: { host: "127.0.0.1:3082" } }, res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(JSON.parse(res.body).error.code, NOT_CONFIGURED_CODE);
+});
+
+test("route error text tells the user how to fix each envelope", () => {
+  const missing = routeErrorText({ code: NOT_CONFIGURED_CODE, message: "ignored" });
+  assert.match(missing, /插件设置/);
+  const fenced = routeErrorText({ code: "forbidden" });
+  assert.match(fenced, /token/);
+  assert.equal(routeErrorText({ code: "boom", message: "detail" }), "detail");
+  assert.equal(routeErrorText(undefined), "请求失败");
+});
+
+test("a volatile-style config change takes effect per request without re-registering", async () => {
+  let config = { apiKey: "", baseUrl: "https://127.0.0.1:27124" };
+  const created = [];
+  const registered = [];
+  const ctx = {
+    effect: (fn) => fn(),
+    webServer: { register: (route) => { registered.push(route); return () => {}; } },
+    get: () => undefined,
+  };
+  registerObsidianRoutes(ctx, {
+    getConfig: () => config,
+    createData: (input) => { created.push(input); return fakeData(); },
+  });
+  const list = registered[0].handler;
+  const headers = { host: "127.0.0.1:3082" };
+  const before = fakeRes();
+  await list({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers }, before);
+  assert.equal(before.statusCode, 503);
+  // Same semantics as a volatile settings commit: the getter now returns a key.
+  config = { apiKey: "secret", baseUrl: "https://127.0.0.1:27124" };
+  const after = fakeRes();
+  await list({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers }, after);
+  assert.equal(after.statusCode, 200);
+  assert.equal(created.length, 1, "the data layer is created lazily once configured");
+});
+
+test("a connection-service getter that throws is fenced as forbidden, not a 400", async () => {
+  const registered = [];
+  const ctx = {
+    effect: (fn) => fn(),
+    webServer: { register: (route) => { registered.push(route); return () => {}; } },
+    get: () => { throw new Error("service not available"); },
+  };
+  registerObsidianRoutes(ctx, { apiKey: "k", createData: () => fakeData() });
+  const res = fakeRes();
+  await registered[0].handler({ ...fakeReq("/obsidian/api/list"), headers: { host: "127.0.0.1:3082" } }, res);
+  assert.equal(res.statusCode, 403);
 });

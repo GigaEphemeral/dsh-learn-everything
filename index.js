@@ -22,31 +22,65 @@ const SKILLS_ROOT = fileURLToPath(new URL('./skills/', import.meta.url))
 export const name = 'dsh-learn-everything'
 export const inject = ['skills']
 
-// Plugin config shown in the DSH plugins page. Defaults may not be connectable.
+// Plugin config shown in the DSH plugins page (SettingsForms derives the form
+// from this schema). Every user preference MUST be volatile: the settings form
+// only projects fields whose nearest ancestor declares `volatile`, and the
+// Loader commits volatile changes into the running reference without
+// remounting the plugin. `role('secret')` redacts the key in remote settings.
 export const Config = z.object({
-  apiKey: z.string().default(''),
-  baseUrl: z.string().default('https://127.0.0.1:27124'),
+  apiKey: z.string().role('secret').default('').volatile()
+    .description('Obsidian Local REST API key. Leave empty to use OBSIDIAN_API_KEY.'),
+  baseUrl: z.string().default('https://127.0.0.1:27124').volatile()
+    .description('Obsidian Local REST API base URL. Leave empty to use OBSIDIAN_BASE_URL or the default.'),
 })
+
+// Volatile config fields arrive as `Volatile<T>` references (schemastery wraps
+// them so the Loader can update them in place); plain strings are accepted so
+// direct callers and tests can pass a resolved config object.
+export function readConfigString(value, fallback = '') {
+  if (typeof value === 'string') return value
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+    const current = value.get()
+    if (typeof current === 'string') return current
+  }
+  return fallback
+}
+
+// Effective Obsidian access config: plugin Config (plugins page) first, env
+// fallback. Re-evaluated per request so a volatile settings write takes effect
+// without restarting the host.
+export function resolveObsidianConfig(config) {
+  const apiKey = (readConfigString(config?.apiKey) || process.env.OBSIDIAN_API_KEY || '').trim()
+  const baseUrl = (readConfigString(config?.baseUrl) || process.env.OBSIDIAN_BASE_URL || 'https://127.0.0.1:27124').trim()
+  return { apiKey, baseUrl }
+}
 
 import { registerObsidianRoutes } from './src/sidebar/routes.js'
 
 export function apply(ctx, config) {
-  // Obsidian access config: plugin Config (plugins page) first, env fallback.
-  const obsidianApiKey = (config?.apiKey?.trim?.() || process.env.OBSIDIAN_API_KEY || '').trim()
-  const obsidianBaseUrl = (config?.baseUrl?.trim?.() || process.env.OBSIDIAN_BASE_URL || 'https://127.0.0.1:27124').trim()
-  if (obsidianApiKey) {
-    // Serve Obsidian data over fenced routes. webServer is injected
-    // conditionally; when the host does not expose it the routes are absent.
+  const initial = resolveObsidianConfig(config)
+  // Routes are registered even when no key is configured: each data route then
+  // answers 503 obsidian-not-configured instead of a confusing 404, and the
+  // panel can tell the user to fill the settings form. The data layer resolves
+  // the config per request, so a settings/key change applies without restart.
+  if (typeof ctx.inject === 'function') {
     ctx.inject(['webServer'], (injected) => {
       try {
-        const disposers = registerObsidianRoutes(injected, { apiKey: obsidianApiKey, baseUrl: obsidianBaseUrl })
-        console.log('[dsh-learn-everything] obsidian panel routes registered:', disposers.length)
+        const disposers = registerObsidianRoutes(injected, {
+          getConfig: () => resolveObsidianConfig(config),
+        })
+        console.log('[dsh-learn-everything] obsidian panel routes registered:', disposers.length,
+          initial.apiKey ? '(configured)' : '(awaiting apiKey in plugin settings or OBSIDIAN_API_KEY)')
       } catch (err) {
         console.warn('[dsh-learn-everything] obsidian panel routes not registered:', err?.message || err)
       }
     })
-  } else {
-    console.warn('[dsh-learn-everything] OBSIDIAN_API_KEY not set; Obsidian panel routes disabled (set it in the plugin config or env)')
+  }
+  if (typeof ctx.on === 'function') {
+    ctx.on('loader/volatile-update', () => {
+      const next = resolveObsidianConfig(config)
+      console.log('[dsh-learn-everything] obsidian panel config updated; apiKey', next.apiKey ? 'set' : 'not set')
+    })
   }
 
   ctx.skills.registerProvider(() => ({
