@@ -11,6 +11,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
+import z from '@deepseek-ai/schemastery'
 
 /** Same rank as packaged dsh skill providers (BUNDLED_SKILL_RANK). */
 const BUNDLED_SKILL_RANK = 600
@@ -21,21 +22,31 @@ const SKILLS_ROOT = fileURLToPath(new URL('./skills/', import.meta.url))
 export const name = 'dsh-learn-everything'
 export const inject = ['skills']
 
+// Plugin config shown in the DSH plugins page. Defaults may not be connectable.
+export const Config = z.object({
+  apiKey: z.string().default(''),
+  baseUrl: z.string().default('https://127.0.0.1:27124'),
+})
+
 import { registerObsidianRoutes } from './src/sidebar/routes.js'
 
-export function apply(ctx) {
-  // R2: serve Obsidian data to the right-sidebar panel over fenced routes.
-  // Config comes from the environment (OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL).
-  // webServer + connection are injected conditionally: Cordis forbids touching
-  // a service that is not in the inject list, so we access them inside
-  // ctx.inject(...); when the host does not expose them the callback never
-  // runs and the routes are simply absent.
-  const obsidianApiKey = process.env.OBSIDIAN_API_KEY
-  const obsidianBaseUrl = process.env.OBSIDIAN_BASE_URL ?? 'https://127.0.0.1:27124'
+export function apply(ctx, config) {
+  // Obsidian access config: plugin Config (plugins page) first, env fallback.
+  const obsidianApiKey = (config?.apiKey?.trim?.() || process.env.OBSIDIAN_API_KEY || '').trim()
+  const obsidianBaseUrl = (config?.baseUrl?.trim?.() || process.env.OBSIDIAN_BASE_URL || 'https://127.0.0.1:27124').trim()
   if (obsidianApiKey) {
-    ctx.inject(['webServer', 'connection'], (injected) => {
-      registerObsidianRoutes(injected, { apiKey: obsidianApiKey, baseUrl: obsidianBaseUrl })
+    // Serve Obsidian data over fenced routes. webServer is injected
+    // conditionally; when the host does not expose it the routes are absent.
+    ctx.inject(['webServer'], (injected) => {
+      try {
+        const disposers = registerObsidianRoutes(injected, { apiKey: obsidianApiKey, baseUrl: obsidianBaseUrl })
+        console.log('[dsh-learn-everything] obsidian panel routes registered:', disposers.length)
+      } catch (err) {
+        console.warn('[dsh-learn-everything] obsidian panel routes not registered:', err?.message || err)
+      }
     })
+  } else {
+    console.warn('[dsh-learn-everything] OBSIDIAN_API_KEY not set; Obsidian panel routes disabled (set it in the plugin config or env)')
   }
 
   ctx.skills.registerProvider(() => ({

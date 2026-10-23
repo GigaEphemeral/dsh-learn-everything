@@ -135,16 +135,28 @@ export function makeRouteHandlers(data) {
   return handlers;
 }
 
+// Minimal host check used when the host connection service is absent: only
+// local-loopback Hosts pass (defence against DNS rebinding of a route that
+// serves vault data).
+function localHostFence(req) {
+  const host = String(req?.headers?.host ?? "").toLowerCase();
+  return host === "localhost" || host.startsWith("localhost:") || host === "127.0.0.1" || host.startsWith("127.0.0.1:");
+}
+
 // Register every route with host fencing. ctx must be the injected context
-// (webServer + connection available, per Cordis inject rules). Returns the
-// route registration disposers.
+// with webServer available. Fencing prefers the host connection service
+// (requestRejection) and falls back to a local-loopback host check. Returns
+// the route registration disposers.
 export function registerObsidianRoutes(ctx, { apiKey, baseUrl, compileStatusFile = null }) {
   const data = createObsidianData({ apiKey, baseUrl, compileStatusFile });
   const handlers = makeRouteHandlers(data);
-  if (typeof ctx?.webServer?.register !== "function" || typeof ctx?.connection?.requestRejection !== "function") {
+  if (typeof ctx?.webServer?.register !== "function") {
     return [];
   }
-  const fence = (req) => ctx.connection.requestRejection(req) === undefined;
+  const fence = (req) =>
+    typeof ctx.connection?.requestRejection === "function"
+      ? ctx.connection.requestRejection(req) === undefined
+      : localHostFence(req);
   const disposers = [];
   const mounts = [
     ["/obsidian/api/list", handlers.list],
