@@ -34,3 +34,13 @@ description: "知识摄入工作流（/记住知识）：抓取 URL 或本地 Ma
 ## 注意
 - 摄入耗时 ~6 分钟/源（karpathywiki LLM 编译），阻塞等待用长超时。
 - 测试源/产物若要清理，需用户明确同意后删除（禁止自动删除）。
+
+## 摄入后编译（S3 T3：默认不自动编译）
+- 摄入成功 = 来源已安全入库（create-only + 读回校验 + 注册表）。
+- **默认不强制 karpathywiki 编译**：编译耗时 6~15 分钟，且可能被 LLM 后端限流（request burst），立即重试会加剧。
+- 需要编译时向用户明示成本与风险，或交由用户稍后执行：
+  ```bash
+  cd code && node --env-file=.env scripts/compile-cli.mjs Sources/<slug>.md   # 单次触发
+  node --env-file=.env scripts/compile-cli.mjs pending                         # 列出未编译来源
+  ```
+- 限流/超时：冷却后再触发，或留待补编译；来源笔记不受影响，可随时补。

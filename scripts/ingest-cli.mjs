@@ -7,6 +7,7 @@
 //   OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <https-url>
 //   OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <local-markdown-path>
 //   OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <local-markdown-path> --auto-yes
+//   --compile          also trigger karpathywiki compile after writing (default off)
 //
 // Exit codes: 0 completed, 1 usage/operational error, 2 pipeline ended without
 // completing (cancelled or needs_review).
@@ -23,7 +24,7 @@ import { IngestTask } from "../src/ingest/task-state.js";
 import { fetchUrl, readLocalFile, normalizeSource } from "../src/ingest/source-fetch.js";
 
 const BASE_URL = "https://127.0.0.1:27124";
-const USAGE = "usage: OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <url|local-md> [--auto-yes]";
+const USAGE = "usage: OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <url|local-md> [--auto-yes] [--compile]";
 
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
@@ -106,7 +107,10 @@ async function main() {
   const client = new ObsidianClient({ baseUrl: BASE_URL, apiKey });
   const adapter = new ObsidianAdapter(client);
   const mcp = new McpClient({ baseUrl: BASE_URL, apiKey });
-  const driver = new KarpathyDriver({ adapter, mcp });
+  // Compile is opt-in (S3 T3): the default is to store the source safely and
+  // let the user trigger a possibly slow, rate-limit-prone compile later via
+  // compile-cli.mjs.
+  const driver = process.argv.includes("--compile") ? new KarpathyDriver({ adapter, mcp }) : null;
   const registry = await new SourceRegistry({
     filePath: join(resolveStateDir(import.meta.url), "sources.json"),
   }).load();
@@ -125,6 +129,9 @@ async function main() {
   const pipeline = new IngestPipeline({ adapter, registry, driver, task });
   const report = await pipeline.run({ source, confirm });
   console.log("\nreport:", JSON.stringify(report, null, 2));
+  if (!driver && report.status === "completed") {
+    console.log("hint: source stored without karpathywiki compile. To compile later:\n  node scripts/compile-cli.mjs Sources/<slug>.md   (or `compile-cli.mjs pending` to list untranslated sources)");
+  }
   // process.exitCode (not process.exit) so pending stdout writes are flushed
   // before the process exits.
   process.exitCode = report.status === "completed" ? 0 : 2;
