@@ -69,11 +69,11 @@ node scripts/search-cli.mjs "什么是间隔重复"
 | 目录 | 职责 | 归属 | 说明 |
 |---|---|---|---|
 | `Sources/` | **摄入原文存放处** —— 每次摄入的 URL/本地文件以 `<slug>.md` 落在这里（frontmatter：source_uri/source_id/content_hash/fetched_at + 原文正文） | DSH 写入、用户阅读 | 只 create、绝不覆盖 |
-| `Learning/{MOC,Plans,Questions,Reviews,Projects}` | 人工维护的学习资产 | 用户（DSH 辅助） | 当前为空 |
+| `Learning/MOC` | 人工维护的主题导航 | 用户（DSH 辅助） | vault 中保留的唯一学习目录 |
 | `Inbox/` | 待处理材料 | 用户 | 空 |
 | `wiki/` | karpathywiki **派生**知识网：`concepts/ entities/ sources/` + `index.md log.md schema/config.md` | 插件自动生成 | 可重建；不得视为原始知识 |
 
-边界：`Sources/`+`Learning/`＝正式知识；`wiki/`＝派生可重建；学习状态（作答/复习/掌握度）存 SQLite（决策 B），**绝不**写入 Vault 笔记。
+边界：`Sources/`+`Learning/MOC`＝正式知识；`wiki/`＝派生可重建；**学习状态（Plans/Questions/Reviews：题目/作答/评分/复习调度/掌握度）存 SQLite（决策 B），绝不写入 Vault 笔记**。
 
 ### 摄入流程（原文去向）
 ```

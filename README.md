@@ -72,11 +72,11 @@ The formal vault is `learnEverything`. Knowledge is split by ownership so DSH wr
 | Directory | Responsibility | Owner | Notes |
 |---|---|---|---|
 | `Sources/` | **Ingested originals** — every ingested URL/local file lands here as `<slug>.md` (frontmatter: source_uri/source_id/content_hash/fetched_at + the original body) | DSH writes; user reads | create-only, never overwrite |
-| `Learning/{MOC,Plans,Questions,Reviews,Projects}` | Human-maintained learning assets | User (DSH assists) | currently empty |
+| `Learning/MOC` | Human-maintained topic navigation | User (DSH assists) | the only learning dir kept in the vault |
 | `Inbox/` | Pending materials | User | empty |
 | `wiki/` | KarpathyWiki **derived** network: `concepts/ entities/ sources/` + `index.md log.md schema/config.md` | Plugin auto-generates | rebuildable; never treat as original knowledge |
 
-Boundaries: `Sources/` + `Learning/` = formal knowledge. `wiki/` = derived, rebuildable. Learning state (attempts/review/mastery) lives in SQLite (decision B), **never** written into vault notes.
+Boundaries: `Sources/` + `Learning/MOC` = formal knowledge. `wiki/` = derived, rebuildable. **Learning state — Plans/Questions/Reviews (题目/作答/评分/复习调度/掌握度) — lives in SQLite (decision B), never written into vault notes.**
 
 ### Ingest flow (where the original goes)
 ```

@@ -5,8 +5,9 @@
   "type": "module",
   "description": "DSH + Obsidian 个人知识学习系统插件：连 Obsidian（受控读写/摄入/检索）+ 学习闭环（每日一练/追问）。Complete DSH plugin bundle.",
   "scripts": {
-    "test": "node --test tests/vault-path.test.js tests/obsidian-adapter.test.js tests/karpathy-driver.test.js",
-    "test:live": "node --test tests/integration-live.test.js"
+    "test": "npm run build && node --test tests/*.test.js lib/tests/*.test.js",
+    "test:live": "node --test tests/integration-live.test.js",
+    "build": "tsc -p tsconfig.json"
   },
   "engines": {
     "node": ">=20"
@@ -59,5 +60,9 @@
     "README.md",
     "README-zh.md",
     "LICENSE"
-  ]
+  ],
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
+  }
 }
