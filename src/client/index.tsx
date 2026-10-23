@@ -27,17 +27,27 @@ export function apply(ctx: Context): void {
           description: () => 'Obsidian 知识库访问面板（S4）',
         }],
       })
+      // The host's native right sidebar keys a tab body by the slot entry's
+      // `key` (matching the registered type id) and renders the COMPONENT passed
+      // as the register() second argument. `name` must be the slot name.
       const offBody = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-        name: 'obsidian',
-        inject: (sessionId: string) => ({ sessionId, component: ObsidianPanel }),
-      }))
+        name: 'sidebar.right.pane.tab',
+        key: 'obsidian',
+        inject: (sessionId: string) => ({ sessionId }),
+      }, ObsidianPanel))
       const offTitle = ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
-        name: 'obsidian',
-        inject: (sessionId: string) => ({ sessionId, title: 'Obsidian' }),
-      }))
+        name: 'sidebar.right.pane.tab.title',
+        key: 'obsidian',
+        inject: (sessionId: string) => ({ sessionId }),
+      }, ObsidianTitle))
       return () => { disposeType(); offBody(); offTitle() }
     })
   })
+}
+
+// The native tab chip title.
+function ObsidianTitle(props: { sessionId?: string }) {
+  return createElement('span', null, 'Obsidian')
 }
 
 // Minimal placeholder body (R1): the full panel (list/search/note/graph/
