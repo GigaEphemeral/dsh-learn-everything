@@ -37,6 +37,18 @@ try {
       if (concept) mastery = new MasteryStore(ldb).recentLevels(concept.id, 5);
     }
     console.log(JSON.stringify({ question: q ?? null, review: r ?? null, attempts: atts, mastery }, null, 2));
+  } else if (cmd === "backup") {
+    const target = process.argv[3];
+    if (!target) { console.error("backup needs a target path"); process.exit(2); }
+    const { copyFileSync, existsSync } = await import("node:fs");
+    // WAL-safe: checkpoint, then copy.
+    ldb.db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    copyFileSync(dbPath, target);
+    console.log("backup written:", target);
+  } else if (cmd === "check") {
+    const integrity = ldb.db.prepare("PRAGMA integrity_check").get();
+    const v = ldb.schemaVersion();
+    console.log(JSON.stringify({ integrity: integrity.integrity_check, schemaVersion: v }, null, 2));
   } else {
     console.error("usage: practice-db.mjs <question|answer|status> <json|id>");
     process.exit(2);
@@ -44,3 +56,4 @@ try {
 } finally {
   ldb.close();
 }
+
