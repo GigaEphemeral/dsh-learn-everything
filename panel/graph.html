@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>知识图谱</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  html,body{margin:0;height:100%;font-family:-apple-system,Segoe UI,sans-serif;background:#1e1e1e;color:#ddd}
+  #app{display:flex;height:100%}
+  #graph{flex:1;height:100%}
+  #info{width:260px;border-left:1px solid #333;padding:10px;overflow:auto;font-size:13px}
+  #info h3{margin:0 0 8px;font-size:14px}
+  #info .type{color:#888;font-size:12px}
+  a{color:#6cb6ff}
+  button{background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 10px;margin-top:8px;cursor:pointer}
+  button:hover{background:#444}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="graph"></div>
+  <div id="info"><h3>知识图谱</h3><div>加载中…</div></div>
+</div>
+<script>
+  // Data comes from the parent (client-plugin) via postMessage, or from ?data=
+  // for standalone use. Shape: { nodes: [{id,label,type}], edges: [{source,target}] }
+  const params = new URLSearchParams(location.search);
+  let graphData = null;
+  const raw = params.get("data");
+  if (raw) { try { graphData = JSON.parse(decodeURIComponent(raw)); } catch (e) { graphData = null; } }
+
+  function colorFor(type) {
+    return { concept: "#4fc3f7", entity: "#81c784", source: "#ffb74d", other: "#aaa" }[type] || "#aaa";
+  }
+
+  function render(data) {
+    const container = document.getElementById("graph");
+    if (!data || !Array.isArray(data.nodes)) {
+      document.getElementById("info").innerHTML = "<h3>知识图谱</h3><div>无图谱数据（wiki 为空或尚未生成）。</div>";
+      return;
+    }
+    const nodes = new vis.DataSet(data.nodes.map((n) => ({
+      id: n.id, label: n.label, group: n.type, title: n.id,
+    })));
+    const edges = new vis.DataSet((data.edges || []).map((e, i) => ({ id: i, from: e.source, to: e.target })));
+    const network = new vis.Network(container, { nodes, edges }, {
+      nodes: { shape: "dot", size: 14, font: { color: "#ddd", size: 13 } },
+      edges: { color: { color: "#555", highlight: "#6cb6ff" }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } },
+      physics: { enabled: true, solver: "forceAtlas2Based", stabilization: { iterations: 200 } },
+      interaction: { hover: true },
+    });
+    network.on("click", (e) => {
+      const id = e.nodes[0];
+      if (!id) return;
+      const node = data.nodes.find((n) => n.id === id);
+      const info = document.getElementById("info");
+      if (node) {
+        const file = encodeURIComponent(node.id);
+        const vault = params.get("vault") || "learnEverything";
+        const uri = "obsidian://open?vault=" + vault + "&file=" + file;
+        info.innerHTML =
+          "<h3>" + (node.label || node.id) + "</h3>" +
+          "<div class=type>类型：" + node.type + "</div>" +
+          "<div>路径：" + node.id + "</div>" +
+          "<button onclick=\"window.open('" + uri + "')\">在 Obsidian 打开</button>";
+        // Tell the parent panel which node was clicked (for md preview).
+        window.parent.postMessage({ source: "wiki-graph", type: "node-click", id: node.id }, "*");
+      }
+    });
+  }
+  render(graphData);
+  // The parent client-plugin pushes fresh data here.
+  window.addEventListener("message", (e) => {
+    if (e.data && e.data.source === "wiki-graph" && e.data.type === "data") render(e.data.graph);
+  });
+</script>
+</body>
+</html>
