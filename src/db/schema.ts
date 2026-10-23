@@ -90,6 +90,17 @@ export function migrate(db: DatabaseSync): void {
     db.exec('BEGIN IMMEDIATE;');
     try {
       const applied = readAppliedVersions(db);
+      // A33: never silently operate on a database written by a newer build
+      // (it may contain columns/constraints this code does not know about).
+      let storedMax = 0;
+      for (const version of applied) {
+        if (version > storedMax) storedMax = version;
+      }
+      if (storedMax > MIGRATIONS.length) {
+        throw new Error(
+          `learning database schema version ${storedMax} is newer than the supported version ${MIGRATIONS.length}; upgrade the plugin before opening this database`,
+        );
+      }
       for (let i = 0; i < MIGRATIONS.length; i += 1) {
         const version = i + 1;
         if (applied.has(version)) continue;

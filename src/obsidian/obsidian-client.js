@@ -1,6 +1,6 @@
 // Minimal HTTP client for the Obsidian "Local REST API with MCP" plugin.
 // Uses node:https with TLS verification disabled (the plugin serves a locally
-// generated certificate), a per-request timeout, and typed error mapping.
+// generated certificate), a single request deadline, and typed error mapping.
 
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
@@ -23,6 +23,14 @@ function readBody(res) {
   });
 }
 
+// Request bodies are written to the socket and measured for Content-Length, so
+// anything other than a string or Buffer is a caller bug (C11).
+function assertBodyType(body) {
+  if (body !== undefined && typeof body !== "string" && !Buffer.isBuffer(body)) {
+    throw new TypeError("ObsidianClient: body must be a string or Buffer");
+  }
+}
+
 export class ObsidianClient {
   constructor({ baseUrl = "https://127.0.0.1:27124", apiKey, timeoutMs = 15000 } = {}) {
     if (!apiKey) throw new Error("ObsidianClient: apiKey is required");
@@ -35,6 +43,7 @@ export class ObsidianClient {
   }
 
   async request(method, path, { headers = {}, body, query } = {}) {
+    assertBodyType(body);
     const url = new URL(`${this.protocol}://${this.host}:${this.port}${path}`);
     if (query) {
       for (const [k, v] of Object.entries(query)) url.searchParams.set(k, String(v));
@@ -52,7 +61,12 @@ export class ObsidianClient {
     }
     const res = await this._raw(opts, body);
     const status = res.statusCode;
-    const text = await readBody(res);
+    let text;
+    try {
+      text = await readBody(res);
+    } catch (cause) {
+      throw new ObsidianError(`Obsidian request failed while reading the response: ${cause.message}`, { status: 0 });
+    }
     if (status >= 200 && status < 300) {
       if (!text) return undefined;
       try {
@@ -61,26 +75,42 @@ export class ObsidianClient {
         return text;
       }
     }
-    let message = text;
+    // HTTP error: keep the server-provided message when the body is JSON, and
+    // fall back to `HTTP <status>` for empty bodies (C12).
+    let message = text.trim() === "" ? `HTTP ${status}` : text;
     let errorCode;
     try {
       const j = JSON.parse(text);
-      message = j.message ?? text;
-      errorCode = j.errorCode;
+      if (typeof j?.message === "string" && j.message.trim() !== "") message = j.message;
+      errorCode = j?.errorCode;
     } catch {
-      // Non-JSON error body; keep raw text.
+      // Non-JSON error body; keep the raw text (or the HTTP fallback above).
     }
     throw new ObsidianError(message, { status, errorCode });
   }
 
+  // Single deadline for the whole connect + response-headers phase (C10). It is
+  // cleared as soon as headers arrive, so a large or slow body is not killed by
+  // a stale socket-inactivity timer; transport errors are wrapped (C12).
   _raw(opts, body) {
     return new Promise((resolve, reject) => {
       const fn = this.protocol === "https" ? httpsRequest : httpRequest;
-      const req = fn(opts, resolve);
-      req.setTimeout(this.timeoutMs, () => {
-        req.destroy(new Error(`request timed out after ${this.timeoutMs}ms`));
+      let timer;
+      const req = fn(opts, (res) => {
+        clearTimeout(timer);
+        resolve(res);
       });
-      req.on("error", reject);
+      timer = setTimeout(() => {
+        req.destroy(new ObsidianError(`Obsidian request timed out after ${this.timeoutMs}ms`, { status: 0 }));
+      }, this.timeoutMs);
+      req.on("error", (err) => {
+        clearTimeout(timer);
+        reject(
+          err instanceof ObsidianError
+            ? err
+            : new ObsidianError(`Obsidian request failed: ${err.message}`, { status: 0 }),
+        );
+      });
       if (body !== undefined) req.write(body);
       req.end();
     });

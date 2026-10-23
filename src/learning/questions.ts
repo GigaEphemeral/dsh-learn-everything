@@ -11,16 +11,41 @@ export interface NewQuestion {
   type: string;
   topic: string;
   prompt: string;
-  reference: string | null;
+  // Optional: questions without a reference answer store NULL.
+  reference?: string | null;
+}
+
+function requireText(field: string, value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`question.create requires a non-empty ${field}`);
+  }
+  return value;
+}
+
+function requireVersion(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new Error(`question.create requires a positive integer version, got ${String(value)}`);
+  }
+  return value;
 }
 
 export class QuestionStore {
   constructor(private readonly ldb: LearningDb) {}
 
   create(q: NewQuestion): void {
+    const questionId = requireText('questionId', q.questionId);
+    const type = requireText('type', q.type);
+    const topic = requireText('topic', q.topic);
+    const prompt = requireText('prompt', q.prompt);
+    const version = requireVersion(q.version);
+    // An omitted reference is "no reference answer", not a binding error.
+    const reference = q.reference === undefined ? null : q.reference;
+    if (reference !== null && typeof reference !== 'string') {
+      throw new Error('question.create requires reference to be a string or null');
+    }
     this.ldb.db
       .prepare('INSERT INTO questions (question_id, version, type, topic, prompt, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(q.questionId, q.version, q.type, q.topic, q.prompt, q.reference, new Date().toISOString());
+      .run(questionId, version, type, topic, prompt, reference, new Date().toISOString());
   }
 
   // Read one question. Without `version` the latest stored version is returned

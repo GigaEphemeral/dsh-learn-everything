@@ -56,7 +56,9 @@ export class ObsidianAdapter {
     return this.client.request(
       "PATCH",
       `/vault/${this._path(path)}/frontmatter/${encodeURIComponent(key)}`,
-      { headers, body: JSON.stringify(value) },
+      // Serialize `undefined` as JSON null: a replace operation with no body
+      // would otherwise be an ambiguous, body-less request (C4).
+      { headers, body: JSON.stringify(value ?? null) },
     );
   }
 

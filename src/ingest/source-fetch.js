@@ -6,8 +6,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 export class SourceFetchError extends Error {
-  constructor(message, { code } = {}) {
-    super(message);
+  constructor(message, { code, cause } = {}) {
+    super(message, { cause });
     this.name = "SourceFetchError";
     this.code = code;
   }
@@ -20,7 +20,12 @@ function sha256(text) {
 // Fetch an HTTPS URL with a hard size cap and timeout. HTTP (non-TLS) and
 // file:// are refused; redirects are followed only within https.
 export async function fetchUrl(url, { maxBytes = 512 * 1024, timeoutMs = 20000 } = {}) {
-  const u = new URL(url);
+  let u;
+  try {
+    u = new URL(url);
+  } catch (err) {
+    throw new SourceFetchError(`invalid URL: ${url}`, { code: "url", cause: err });
+  }
   if (u.protocol !== "https:") {
     throw new SourceFetchError(`refusing non-HTTPS URL protocol "${u.protocol}"`, { code: "protocol" });
   }
@@ -46,7 +51,14 @@ export async function fetchUrl(url, { maxBytes = 512 * 1024, timeoutMs = 20000 }
 
 // Read a local text file (Markdown source) with a size cap.
 export async function readLocalFile(path, { maxBytes = 512 * 1024 } = {}) {
-  const buf = await readFile(path);
+  let buf;
+  try {
+    buf = await readFile(path);
+  } catch (err) {
+    // Normalize ENOENT/EACCES/EISDIR/... into the module's error contract so
+    // callers can handle file sources uniformly by code.
+    throw new SourceFetchError(`failed to read file "${path}": ${err.message}`, { code: "io", cause: err });
+  }
   if (buf.byteLength > maxBytes) {
     throw new SourceFetchError(`file exceeds ${maxBytes} bytes`, { code: "size" });
   }

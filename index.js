@@ -40,30 +40,72 @@ export function apply(ctx) {
 }
 
 async function loadSkills(signal) {
-  const entries = await readdir(SKILLS_ROOT, { withFileTypes: true, signal })
+  return loadSkillsFrom(SKILLS_ROOT, signal)
+}
+
+// Exported for tests and for callers that need a catalog from another root.
+// The plugin itself always loads the packaged SKILLS_ROOT.
+export async function loadSkillsFrom(root, signal) {
+  // Sorting makes duplicate detection and the resulting error deterministic.
+  const entries = (await readdir(root, { withFileTypes: true, signal })).sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )
   const skills = []
+  const byName = new Map()
   for (const entry of entries) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
     signal?.throwIfAborted()
-    const directory = join(SKILLS_ROOT, entry.name)
+    const directory = join(root, entry.name)
     const skillFile = join(directory, 'SKILL.md')
-    const parsed = parseSkill(await readFile(skillFile, 'utf8'), directory, skillFile)
-    if (parsed !== undefined) skills.push(parsed)
+    let raw
+    try {
+      raw = await readFile(skillFile, 'utf8')
+    } catch (error) {
+      // A directory without a readable SKILL.md (or a broken symlink) must not
+      // take the whole provider down; other read failures still surface (F1).
+      if (error?.code === 'ENOENT' || error?.code === 'EISDIR') {
+        warnSkippedSkill(skillFile, `no readable SKILL.md (${error.code})`)
+        continue
+      }
+      throw error
+    }
+    const parsed = parseSkill(raw, directory, skillFile)
+    if (parsed === undefined) continue
+    const duplicate = byName.get(parsed.name)
+    if (duplicate !== undefined) {
+      throw new Error(
+        `${PROVIDER_NAME}: duplicate skill name "${parsed.name}" in ${duplicate.locator} and ${parsed.locator}`,
+      )
+    }
+    byName.set(parsed.name, parsed)
+    skills.push(parsed)
   }
-  return [...skills].sort((left, right) => left.name.localeCompare(right.name))
+  return skills.sort((left, right) => left.name.localeCompare(right.name))
 }
 
+function warnSkippedSkill(skillFile, reason) {
+  console.warn(`[${PROVIDER_NAME}] skipping skill ${skillFile}: ${reason}`)
+}
+
+// Malformed skills are skipped with a warning instead of aborting the whole
+// catalog: missing/invalid frontmatter, missing name or description, and
+// invalid skill names all follow the same policy (F2).
 function parseSkill(raw, directory, skillFile) {
   const parsed = parseFrontmatter(raw)
-  if (parsed === undefined) return undefined
+  if (parsed === undefined) {
+    warnSkippedSkill(skillFile, 'missing or invalid frontmatter')
+    return undefined
+  }
   const data = parsed.data
   const skillName = typeof data.name === 'string' ? data.name.trim() : undefined
   const description = typeof data.description === 'string' ? data.description.trim() : undefined
-  if (skillName === undefined || description === undefined) {
-    throw new Error(`${PROVIDER_NAME}: ${skillFile} frontmatter requires name and description`)
+  if (!skillName || !description) {
+    warnSkippedSkill(skillFile, 'frontmatter requires name and description')
+    return undefined
   }
   if (!SKILL_NAME.test(skillName)) {
-    throw new Error(`${PROVIDER_NAME}: invalid skill name "${skillName}"`)
+    warnSkippedSkill(skillFile, `invalid skill name "${skillName}"`)
+    return undefined
   }
   return {
     name: skillName,

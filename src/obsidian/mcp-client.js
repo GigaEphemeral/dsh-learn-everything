@@ -5,10 +5,11 @@ import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 
 export class McpError extends Error {
-  constructor(message, { code } = {}) {
+  constructor(message, { code, status = 0 } = {}) {
     super(message);
     this.name = "McpError";
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -19,6 +20,14 @@ function readBody(res) {
     res.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     res.on("error", reject);
   });
+}
+
+// Join the text blocks of an MCP result (tool output or `isError` detail).
+function resultText(result) {
+  return (result?.content ?? [])
+    .filter((c) => c?.type === "text")
+    .map((c) => c.text ?? "")
+    .join("\n");
 }
 
 export class McpClient {
@@ -53,6 +62,8 @@ export class McpClient {
       path: "/mcp/",
       headers: {
         "Content-Type": "application/json",
+        // Streamable HTTP requires accepting both response encodings (C17).
+        Accept: "application/json, text/event-stream",
         Authorization: `Bearer ${this.apiKey}`,
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": method,
@@ -60,7 +71,14 @@ export class McpClient {
       },
       body,
     });
+    const status = res.statusCode;
     const text = await readBody(res);
+    // HTTP-level failures (401/403/5xx, HTML gateways) must be reported as such
+    // instead of as a JSON parsing problem (C14).
+    if (status < 200 || status >= 300) {
+      const detail = text.trim().slice(0, 200);
+      throw new McpError(`MCP ${method}: HTTP ${status}${detail ? `: ${detail}` : ""}`, { status });
+    }
     let parsed;
     try {
       parsed = JSON.parse(text);
@@ -70,14 +88,23 @@ export class McpClient {
     if (parsed.error) {
       throw new McpError(`MCP ${method} failed: ${parsed.error.message}`, { code: parsed.error.code });
     }
+    // A JSON-RPC response without `result` cannot be consumed safely (C15).
+    if (parsed.result === undefined) {
+      throw new McpError(`MCP ${method}: response is missing result`, { code: -32603 });
+    }
+    // MCP protocol errors carry `isError` inside a successful HTTP/JSON-RPC
+    // exchange; surface them instead of returning the failure text (C15).
+    if (parsed.result?.isError === true) {
+      const detail = resultText(parsed.result);
+      throw new McpError(`MCP ${method} failed: ${detail || "tool reported an error"}`);
+    }
     return parsed.result;
   }
 
   // Call an MCP tool and return its text content.
   async tool(name, args) {
     const result = await this.call("tools/call", { name, arguments: args ?? {} }, name);
-    const content = (result.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
-    return content;
+    return resultText(result);
   }
 
   _raw(opts) {

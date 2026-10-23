@@ -4,11 +4,19 @@
 // single LLM "understood" claim never proves mastery by itself.
 
 import type { LearningDb } from '../db/client.js';
+import { safeLimit } from './limits.js';
 
 // Evidence sources allowed to contribute mastery. Kept in sync with the v2
 // CHECK constraint on mastery_history.source.
 export const MASTERY_SOURCES = ['first_answer', 'model_rating', 'correction', 'variant_pass'] as const;
 export type MasterySource = (typeof MASTERY_SOURCES)[number];
+
+// Typed projection of a mastery evidence row.
+export interface MasteryEvidence {
+  level: number;
+  source: MasterySource;
+  recorded_at: string;
+}
 
 export class MasteryStore {
   constructor(private readonly ldb: LearningDb) {}
@@ -51,7 +59,9 @@ export class MasteryStore {
       .run(conceptId, level, source, new Date().toISOString());
   }
 
-  recentLevels(conceptId: number, limit = 5): Array<Record<string, unknown>> {
-    return this.ldb.db.prepare('SELECT level, source, recorded_at FROM mastery_history WHERE concept_id = ? ORDER BY id DESC LIMIT ?').all(conceptId, limit) as Array<Record<string, unknown>>;
+  recentLevels(conceptId: number, limit = 5): MasteryEvidence[] {
+    return this.ldb.db
+      .prepare('SELECT level, source, recorded_at FROM mastery_history WHERE concept_id = ? ORDER BY id DESC LIMIT ?')
+      .all(conceptId, safeLimit(limit, 5)) as unknown as MasteryEvidence[];
   }
 }

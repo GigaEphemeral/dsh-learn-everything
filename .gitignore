@@ -1,6 +1,17 @@
 # local secrets and dependencies (never commit)
-.env
+.env*
+!.env.example
 node_modules/
 
 # runtime state (ingest registry, attempts, review)
 .state/
+
+# SQLite learning databases and their WAL sidecars
+*.db
+*.db-wal
+*.db-shm
+
+# logs, coverage output and OS metadata
+*.log
+coverage/
+.DS_Store

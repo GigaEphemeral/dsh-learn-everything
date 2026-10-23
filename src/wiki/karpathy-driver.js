@@ -5,7 +5,16 @@
 
 import { ObsidianError } from "../obsidian/obsidian-adapter.js";
 
-const WIKI_DIRS = ["wiki/sources", "wiki/concepts", "wiki/entities"];
+export const WIKI_DIRS = ["wiki/sources", "wiki/concepts", "wiki/entities"];
+
+// Explicit directory -> report key map. Deriving the key from the path with
+// `split("/")[1]` silently breaks for any nested wiki layout (D4).
+export const WIKI_DIR_KEYS = Object.freeze({
+  "wiki/sources": "sources",
+  "wiki/concepts": "concepts",
+  "wiki/entities": "entities",
+});
+
 export const INGEST_ACTIVE_FILE = "karpathywiki:ingest-active-file";
 
 // Environment-driven defaults so each user can tune the wait without editing code.
@@ -27,14 +36,36 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Constructor options must be usable durations; 0/negative/NaN would busy-loop,
+// time out immediately, or skip the settle window (D3).
+function positiveNumber(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+// The ingest command returns JSON `{"message":"OK"}`; only fall back to the
+// plain trimmed "OK" when the output is not JSON (D2).
+function isIngestOk(output) {
+  if (typeof output !== "string") return false;
+  const trimmed = output.trim();
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed !== null && typeof parsed === "object") {
+      return typeof parsed.message === "string" && parsed.message.trim() === "OK";
+    }
+  } catch {
+    // Not JSON; use the plain-text fallback below.
+  }
+  return trimmed === "OK";
+}
+
 export class KarpathyDriver {
   constructor({ adapter, mcp, pollIntervalMs = DEFAULT_INGEST_POLL_INTERVAL_MS, timeoutMs = DEFAULT_INGEST_TIMEOUT_MS, settleMs = DEFAULT_INGEST_SETTLE_MS } = {}) {
     if (!adapter || !mcp) throw new Error("KarpathyDriver: adapter and mcp are required");
     this.adapter = adapter;
     this.mcp = mcp;
-    this.pollIntervalMs = pollIntervalMs;
-    this.timeoutMs = timeoutMs;
-    this.settleMs = settleMs;
+    this.pollIntervalMs = positiveNumber(pollIntervalMs, DEFAULT_INGEST_POLL_INTERVAL_MS);
+    this.timeoutMs = positiveNumber(timeoutMs, DEFAULT_INGEST_TIMEOUT_MS);
+    this.settleMs = positiveNumber(settleMs, DEFAULT_INGEST_SETTLE_MS);
   }
 
   // Snapshot current files in the three wiki output directories.
@@ -57,9 +88,10 @@ export class KarpathyDriver {
 
   // Diff a snapshot against the current state: what was created per dir.
   _diff(before, after) {
-    const created = { sources: [], concepts: [], entities: [] };
+    const created = {};
+    for (const key of Object.values(WIKI_DIR_KEYS)) created[key] = [];
     for (const dir of WIKI_DIRS) {
-      const key = dir.split("/")[1];
+      const key = WIKI_DIR_KEYS[dir];
       const beforeSet = before[dir] ?? new Set();
       for (const f of after[dir] ?? []) {
         if (!beforeSet.has(f)) created[key].push(f);
@@ -72,8 +104,8 @@ export class KarpathyDriver {
   async openAndIngest(sourcePath) {
     await this.mcp.tool("open_file", { path: sourcePath });
     const out = await this.mcp.tool("command_execute", { commandId: INGEST_ACTIVE_FILE });
-    if (!out.includes("OK")) {
-      throw new Error(`ingest command did not return OK: ${out.slice(0, 200)}`);
+    if (!isIngestOk(out)) {
+      throw new Error(`ingest command did not return OK: ${typeof out === "string" ? out.slice(0, 200) : String(out)}`);
     }
   }
 
@@ -88,8 +120,10 @@ export class KarpathyDriver {
       const after = await this.snapshotWiki();
       const created = this._diff(before, after);
       if (created.sources.length > 0 || created.concepts.length > 0 || created.entities.length > 0) {
-        // Wait out the settle window so late-generated pages are included.
-        await sleep(settleMs);
+        // Wait out the settle window so late-generated pages are included, but
+        // never sleep past the overall deadline (D1).
+        const remaining = Math.max(0, deadline - Date.now());
+        await sleep(Math.min(settleMs, remaining));
         const final = await this.snapshotWiki();
         return { created: this._diff(before, final), elapsedMs: Date.now() - startedAt };
       }

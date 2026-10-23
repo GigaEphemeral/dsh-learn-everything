@@ -1,6 +1,8 @@
-# dsh-learn-everything bundle: registers the packaged skills under code/skills/
-# on ctx.skills. Applied after @deepseek-ai/dsh-base, which mounts the skill
-# registry and the model-facing skill loader.
+# dsh-learn-everything bundle patch: mounts the plugin entry node below, which
+# registers the packaged skills under skills/ with the host skill registry at
+# runtime. The registry and the model-facing skill loader are provided by the
+# host; this patch only adds the plugin node and makes no ordering claim
+# relative to other bundles.
 - insert:
     - id: dsh-learn-everything
       name: dsh-learn-everything

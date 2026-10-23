@@ -3,76 +3,151 @@
 // Usage:
 //   OBSIDIAN_API_KEY=... node scripts/wiki-node-cli.mjs random
 //   OBSIDIAN_API_KEY=... node scripts/wiki-node-cli.mjs show <concept-name>
+//
+// Output is always JSON. Errors are printed as {"error": "..."} with a
+// non-zero exit code, so the skill can parse one shape and a shell `set -e`
+// flow still fails.
 
-import { ObsidianClient, ObsidianAdapter } from "../src/obsidian/obsidian-adapter.js";
+import { pathToFileURL } from "node:url";
+import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 
-const apiKey = process.env.OBSIDIAN_API_KEY;
-const mode = process.argv[2];
-const arg = process.argv[3];
-if (!apiKey || !mode) {
-  console.error("usage: OBSIDIAN_API_KEY=... node scripts/wiki-node-cli.mjs <random|show> [name]");
-  process.exit(1);
+const BASE_URL = "https://127.0.0.1:27124";
+const WIKI_DIRS = ["wiki/concepts", "wiki/entities", "wiki/sources"];
+const MAX_CONTENT_CHARS = 2000;
+
+function errorMessage(err) {
+  return err instanceof Error ? err.message : String(err);
 }
 
-const client = new ObsidianClient({ baseUrl: "https://127.0.0.1:27124", apiKey });
-const adapter = new ObsidianAdapter(client);
+// Extract the source note path from a wiki page's frontmatter. Accepted shapes:
+//   source_file: "[[Sources/foo.md]]"          (double quotes)
+//   source_file: '[[Sources/foo.md|Alias]]'    (single quotes + alias)
+//   source_file: [[Sources/foo.md]] # comment  (unquoted + trailing comment)
+export function extractSourceFile(content) {
+  if (typeof content !== "string") return null;
+  const line = content.match(/^source_file:\s*(.+)$/m)?.[1];
+  if (!line) return null;
+  const link = line.match(/\[\[([^\]\n]+?)\]\]/)?.[1];
+  if (!link) return null;
+  // Drop an Obsidian alias (`[[path|alias]]`) and surrounding whitespace.
+  const sourcePath = link.split("|")[0].trim();
+  return sourcePath === "" ? null : sourcePath;
+}
 
-async function listDir(dir) {
+// List a wiki directory. Only a 404 means "this directory has no pages yet";
+// any other error (auth, TLS, timeout, 5xx) must surface instead of showing an
+// empty wiki.
+export async function listDir(adapter, dir) {
   try {
     const { files } = await adapter.list(dir);
     return files ?? [];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof ObsidianError && err.status === 404) return [];
+    throw new Error(`failed to list "${dir}" in the wiki: ${errorMessage(err)}`, { cause: err });
   }
 }
 
-// Collect all wiki pages (concepts/entities/sources) with their dir.
-async function allNodes() {
+export async function collectNodes(adapter) {
   const nodes = [];
-  for (const dir of ["wiki/concepts", "wiki/entities", "wiki/sources"]) {
-    for (const f of await listDir(dir)) {
-      nodes.push({ dir, file: f, path: `${dir}/${f}` });
+  for (const dir of WIKI_DIRS) {
+    const files = await listDir(adapter, dir);
+    for (const file of files) {
+      nodes.push({ dir, file, path: `${dir}/${file}` });
     }
   }
   return nodes;
 }
 
-if (mode === "random") {
-  const nodes = await allNodes();
+function nodeName(file) {
+  return file.replace(/\.md$/i, "");
+}
+
+function nodeType(node) {
+  return node.dir.split("/")[1];
+}
+
+// Read a node's Markdown body. The REST API returns no body for a failed/empty
+// read, so a non-string response is an error rather than something to call
+// .match()/.slice() on.
+export async function readNode(adapter, path) {
+  let content;
+  try {
+    content = await adapter.read(path);
+  } catch (err) {
+    throw new Error(`failed to read "${path}": ${errorMessage(err)}`, { cause: err });
+  }
+  if (typeof content !== "string") {
+    throw new Error(`unexpected response for "${path}": expected Markdown text, got ${typeof content}`);
+  }
+  return content;
+}
+
+export async function randomNode(adapter) {
+  const nodes = await collectNodes(adapter);
   if (nodes.length === 0) {
-    console.log(JSON.stringify({ error: "wiki is empty; ingest sources first" }));
-    process.exit(1);
+    throw new Error("wiki is empty; ingest sources first");
   }
   const pick = nodes[Math.floor(Math.random() * nodes.length)];
-  const content = await adapter.read(pick.path);
-  const title = pick.file.replace(/\.md$/, "");
-  // Extract the source note links if this is a source page.
-  const sourceFile = content.match(/source_file:\s*\"?\[\[([^\]]+)\]\]/)?.[1] ?? null;
-  console.log(JSON.stringify({
-    keyword: title,
-    type: pick.dir.split("/")[1],
+  const content = await readNode(adapter, pick.path);
+  return {
+    keyword: nodeName(pick.file),
+    type: nodeType(pick),
     path: pick.path,
-    sourceFile,
-    content: content.slice(0, 2000),
-  }, null, 2));
-  process.exit(0);
+    sourceFile: extractSourceFile(content),
+    content: content.slice(0, MAX_CONTENT_CHARS),
+    // Signal that the downstream LLM is looking at a partial page.
+    truncated: content.length > MAX_CONTENT_CHARS,
+  };
 }
 
-if (mode === "show") {
-  if (!arg) {
-    console.error("show needs a name");
-    process.exit(1);
-  }
-  const nodes = await allNodes();
-  const match = nodes.find((n) => n.file.replace(/\.md$/, "") === arg || n.file === arg);
+export async function showNode(adapter, name) {
+  const nodes = await collectNodes(adapter);
+  const match = nodes.find((node) => nodeName(node.file) === name || node.file === name);
   if (!match) {
-    console.log(JSON.stringify({ error: `node "${arg}" not found` }));
-    process.exit(1);
+    throw new Error(`node "${name}" not found`);
   }
-  const content = await adapter.read(match.path);
-  console.log(JSON.stringify({ keyword: arg, type: match.dir.split("/")[1], path: match.path, content }, null, 2));
-  process.exit(0);
+  const content = await readNode(adapter, match.path);
+  return {
+    keyword: name,
+    type: nodeType(match),
+    path: match.path,
+    content,
+  };
 }
 
-console.error("unknown mode; use random|show");
-process.exit(1);
+function createAdapter(apiKey) {
+  return new ObsidianAdapter(new ObsidianClient({ baseUrl: BASE_URL, apiKey }));
+}
+
+async function main() {
+  const apiKey = process.env.OBSIDIAN_API_KEY;
+  const [mode, name] = process.argv.slice(2);
+  if (!apiKey || !mode) {
+    console.error("usage: OBSIDIAN_API_KEY=... node scripts/wiki-node-cli.mjs <random|show> [name]");
+    process.exitCode = 1;
+    return;
+  }
+  if (mode === "show" && !name) {
+    console.error("show needs a name");
+    process.exitCode = 1;
+    return;
+  }
+  if (mode !== "random" && mode !== "show") {
+    console.error("unknown mode; use random|show");
+    process.exitCode = 1;
+    return;
+  }
+
+  const adapter = createAdapter(apiKey);
+  try {
+    const payload = mode === "random" ? await randomNode(adapter) : await showNode(adapter, name);
+    console.log(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    console.log(JSON.stringify({ error: errorMessage(err) }));
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}

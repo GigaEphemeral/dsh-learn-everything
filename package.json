@@ -5,12 +5,13 @@
   "type": "module",
   "description": "DSH + Obsidian 个人知识学习系统插件：连 Obsidian（受控读写/摄入/检索）+ 学习闭环（每日一练/追问）。Complete DSH plugin bundle.",
   "scripts": {
-    "test": "npm run build && node --test tests/*.test.js lib/tests/*.test.js",
+    "test": "npm run build && node scripts/run-tests.mjs",
     "test:live": "node --test tests/integration-live.test.js",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.6"
   },
   "main": "index.js",
   "exports": {
@@ -53,16 +54,18 @@
     "cordis.patch.yml",
     "dsh-plugin.json",
     "skills",
+    "lib",
     "src",
     "scripts",
     "tests",
+    "tsconfig.json",
     "package.json",
     "README.md",
     "README-zh.md",
     "LICENSE"
   ],
   "devDependencies": {
-    "@types/node": "^24.19.2",
+    "@types/node": "^22",
     "typescript": "^5.9.3"
   }
 }

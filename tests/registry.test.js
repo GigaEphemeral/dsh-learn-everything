@@ -196,3 +196,27 @@ test("failed save preserves a pre-existing registry file", async (t) => {
     await chmod(locked, 0o755);
   }
 });
+
+test("add() rejects records without a content hash or source URI", async (t) => {
+  const dir = await makeTempDir(t);
+  const reg = new SourceRegistry({ filePath: join(dir, "sources.json") });
+
+  assert.throws(() => reg.add({ sourceUri: "mem://x" }), /contentHash is required/);
+  assert.throws(() => reg.add({ contentHash: "  ", sourceUri: "mem://x" }), /contentHash is required/);
+  assert.throws(() => reg.add({ contentHash: "hash" }), /sourceUri is required/);
+  assert.throws(() => reg.add({ contentHash: "hash", sourceUri: "" }), /sourceUri is required/);
+  assert.deepEqual(reg.records, []);
+});
+
+test("add() skips exact duplicates (same hash and URI) but keeps other origins", async (t) => {
+  const dir = await makeTempDir(t);
+  const reg = new SourceRegistry({ filePath: join(dir, "sources.json") });
+  const record = { contentHash: "hash-1", sourceUri: "mem://a", title: "A", vaultPath: "Sources/a.md" };
+
+  reg.add(record);
+  reg.add({ ...record });
+  assert.equal(reg.records.length, 1, "an exact duplicate must not be appended twice");
+
+  reg.add({ ...record, sourceUri: "mem://b", vaultPath: "Sources/b.md" });
+  assert.equal(reg.records.length, 2, "the same content from a different origin is still recorded");
+});

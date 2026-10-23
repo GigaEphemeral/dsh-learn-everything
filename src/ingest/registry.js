@@ -88,9 +88,22 @@ export class SourceRegistry {
     return this.records.filter((r) => r.sourceUri === sourceUri);
   }
 
-  // Record an ingested source.
+  // Record an ingested source. Required identity fields are validated so an
+  // empty hash/URI can never enter the dedupe history, and an exact duplicate
+  // (same hash and same URI) is skipped instead of appended again.
   add({ contentHash, sourceUri, title, vaultPath, ingestedAt = new Date().toISOString() }) {
-    this.records.push({ contentHash, sourceUri, title, vaultPath, ingestedAt });
+    if (typeof contentHash !== "string" || contentHash.trim() === "") {
+      throw new Error("SourceRegistry: contentHash is required");
+    }
+    if (typeof sourceUri !== "string" || sourceUri.trim() === "") {
+      throw new Error("SourceRegistry: sourceUri is required");
+    }
+    const duplicate = this.records.some(
+      (record) => record.contentHash === contentHash && record.sourceUri === sourceUri,
+    );
+    if (!duplicate) {
+      this.records.push({ contentHash, sourceUri, title, vaultPath, ingestedAt });
+    }
     return this;
   }
 }

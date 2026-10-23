@@ -15,6 +15,40 @@ test("normalizeEvidence classifies wiki/source/search and keeps the real path", 
   assert.ok(wiki.confidence === "candidate");
 });
 
+test("normalizeEvidence rejects a missing or malformed path (E1)", () => {
+  for (const path of [undefined, null, "", "   ", 42, {}, ["x"]]) {
+    assert.throws(
+      () => normalizeEvidence({ path, excerpt: "e" }),
+      (err) => err instanceof TypeError && /path must be a non-empty string/.test(err.message),
+    );
+  }
+});
+
+test("normalizeEvidence classifies case- and separator-insensitively (E2)", () => {
+  const type = (path) => normalizeEvidence({ path, excerpt: "e" }).resultType;
+  assert.equal(type("Wiki/concepts/X.md"), "wiki_page");
+  assert.equal(type("wiki\\concepts\\X.md"), "wiki_page");
+  assert.equal(type("/wiki/x.md"), "wiki_page");
+  assert.equal(type("Sources/x.md"), "source_note");
+  assert.equal(type("sources/x.md"), "source_note");
+  assert.equal(type("Inbox/x.md"), "source_note");
+  assert.equal(type("inbox\\x.md"), "source_note");
+  // The original spelling is preserved for citations, and titles keep their case.
+  const win = normalizeEvidence({ path: "wiki\\concepts\\Transformer.md", excerpt: "e" });
+  assert.equal(win.path, "wiki\\concepts\\Transformer.md");
+  assert.equal(win.title, "Transformer");
+});
+
+test("normalizeEvidence derives sourceNote from the resolved resultType (E3)", () => {
+  const forcedPlain = normalizeEvidence({ path: "Sources/x.md", excerpt: "e", resultType: "search_result" });
+  assert.equal(forcedPlain.resultType, "search_result");
+  assert.equal(forcedPlain.sourceNote, null);
+  const forcedSource = normalizeEvidence({ path: "notes/y.md", excerpt: "e", resultType: "source_note" });
+  assert.equal(forcedSource.sourceNote, "notes/y.md");
+  const forcedWiki = normalizeEvidence({ path: "Sources/z.md", excerpt: "e", resultType: "wiki_page" });
+  assert.equal(forcedWiki.sourceNote, null);
+});
+
 test("sufficiency: no evidence is insufficient", () => {
   const r = assessSufficiency("问题", []);
   assert.equal(r.sufficient, false);
@@ -35,4 +69,24 @@ test("sufficiency: exact-fact question requires source evidence", () => {
   const withSource = [...wiki, normalizeEvidence({ path: "Sources/x.md", excerpt: "v1.2" })];
   const r2 = assessSufficiency("x 的版本号是多少", withSource, { exactFact: true });
   assert.equal(r2.sufficient, true);
+});
+
+test("sufficiency requires at least one non-empty excerpt (E4)", () => {
+  const empty = [
+    normalizeEvidence({ path: "wiki/concepts/x.md", excerpt: "" }),
+    normalizeEvidence({ path: "Sources/x.md", excerpt: "   " }),
+    normalizeEvidence({ path: "wiki/concepts/y.md" }),
+  ];
+  const emptyResult = assessSufficiency("解释 x", empty);
+  assert.equal(emptyResult.sufficient, false);
+  assert.equal(emptyResult.level, "partial");
+  const mixed = [...empty, normalizeEvidence({ path: "wiki/concepts/z.md", excerpt: "real" })];
+  assert.equal(assessSufficiency("解释 x", mixed).sufficient, true);
+  // An excerpt-less source cannot satisfy an exact-fact question either.
+  const exact = assessSufficiency(
+    "x 的版本号是多少",
+    [normalizeEvidence({ path: "Sources/x.md", excerpt: " " })],
+    { exactFact: true },
+  );
+  assert.equal(exact.sufficient, false);
 });

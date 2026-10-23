@@ -3,33 +3,51 @@
 // update. Phases: first / correction / variant. All state goes to SQLite
 // (decision B); nothing is written to Obsidian.
 
+import { randomUUID } from 'node:crypto';
 import type { LearningDb } from '../db/client.js';
 import type { NewQuestion } from './questions.js';
 import { QuestionStore } from './questions.js';
 import { AttemptStore } from './attempts.js';
+import { RatingStore } from './ratings.js';
 import { ReviewStore } from './review.js';
 import { MasteryStore } from './mastery.js';
+import type { AttemptResult, PracticePhase } from './types.js';
 
-export type PracticePhase = "first" | "correction" | "variant";
+// Re-exported for compatibility (this module was the original home of
+// PracticePhase); the unions themselves live in the leaf types module.
+export type { AttemptResult, PracticePhase } from './types.js';
+
+// One concept whose mastery evidence this answer contributes.
+export interface AnswerConcept {
+  name: string;
+  wikiPath: string | null;
+  level: number;
+  source: string;
+}
 
 export interface AnswerInput {
   questionId: string;
   questionVersion: number;
   // Omitted phase is stored as "first" by AttemptStore.
   phase?: PracticePhase;
-  correct: boolean;
-  result: "correct" | "incorrect" | "partial";
+  // Derived from `result`; when provided it must agree with it (A18).
+  correct?: boolean;
+  result: AttemptResult;
   score: number | null;
   answerSummary: string | null;
   modelRating?: number | null;
   feedback?: string | null;
   errorAnalysis?: string | null;
   suggestions?: string | null;
-  concepts: Array<{ name: string; wikiPath: string | null; level: number; source: string }>;
+  // Omitted/empty concept list is valid (A17); nameless entries are skipped.
+  concepts?: AnswerConcept[];
 }
 
+// Append-only attempt identity must be collision-safe even for answers recorded
+// in the same millisecond (A45): a UUIDv4 is used instead of
+// Date.now()+Math.random(), which could collide and corrupt attribution.
 function newAttemptId(): string {
-  return `attempt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `attempt_${randomUUID()}`;
 }
 
 // SQLITE_CONSTRAINT_UNIQUE; a duplicate (question_id, version) is the only
@@ -44,12 +62,14 @@ function isUniqueConstraintError(err: unknown): boolean {
 export class PracticeSession {
   private readonly questions: QuestionStore;
   private readonly attempts: AttemptStore;
+  private readonly ratings: RatingStore;
   private readonly review: ReviewStore;
   private readonly mastery: MasteryStore;
 
   constructor(private readonly ldb: LearningDb) {
     this.questions = new QuestionStore(ldb);
     this.attempts = new AttemptStore(ldb);
+    this.ratings = new RatingStore(ldb);
     this.review = new ReviewStore(ldb);
     this.mastery = new MasteryStore(ldb);
   }
@@ -70,6 +90,15 @@ export class PracticeSession {
   // if any store fails, the whole answer is rolled back instead of leaving an
   // attempt without rating/review/mastery (or the other way around).
   recordAnswer(a: AnswerInput): string {
+    // A18: `result` is the single source of truth for correctness; a caller that
+    // passes a contradictory explicit `correct` gets a clear error instead of
+    // writing two states that disagree.
+    const derivedCorrect = a.result === 'correct';
+    if (a.correct !== undefined && a.correct !== derivedCorrect) {
+      throw new Error(
+        `contradictory answer: result="${a.result}" implies correct=${derivedCorrect} but correct=${a.correct} was provided`,
+      );
+    }
     const attemptId = newAttemptId();
     // Normalise omitted optional fields to null so node:sqlite never receives
     // an undefined binding and "field empty" is distinguishable from "missing".
@@ -77,6 +106,9 @@ export class PracticeSession {
     const feedback = a.feedback === undefined ? null : a.feedback;
     const errorAnalysis = a.errorAnalysis === undefined ? null : a.errorAnalysis;
     const suggestions = a.suggestions === undefined ? null : a.suggestions;
+    // A17: a missing concept list means "no concepts", and malformed entries are
+    // skipped rather than aborting the answer mid-write.
+    const concepts = Array.isArray(a.concepts) ? a.concepts : [];
     this.ldb.transaction(() => {
       this.attempts.record({
         attemptId,
@@ -90,13 +122,13 @@ export class PracticeSession {
       // `!== null` rather than truthiness: an empty-string feedback still means
       // a rating row was provided by the model.
       if (modelRating !== null || feedback !== null || errorAnalysis !== null || suggestions !== null) {
-        this.ldb.db
-          .prepare('INSERT INTO ratings (attempt_id, model_rating, feedback, error_analysis, suggestions, rated_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(attemptId, modelRating, feedback, errorAnalysis, suggestions, new Date().toISOString());
+        this.ratings.record({ attemptId, modelRating, feedback, errorAnalysis, suggestions });
       }
-      this.review.applyAttempt(a.questionId, a.correct);
-      for (const c of a.concepts) {
-        const id = this.mastery.ensureConcept(c.name, c.wikiPath);
+      this.review.applyAttempt(a.questionId, derivedCorrect);
+      for (const c of concepts) {
+        if (!c || typeof c.name !== 'string' || c.name.trim() === '') continue;
+        const wikiPath = typeof c.wikiPath === 'string' ? c.wikiPath : null;
+        const id = this.mastery.ensureConcept(c.name, wikiPath);
         this.mastery.recordLevel(id, c.level, c.source);
       }
     });

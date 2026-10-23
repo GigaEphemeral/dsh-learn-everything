@@ -7,7 +7,9 @@ import { classifyIntent } from "../src/search/intent.js";
 import { assessSufficiency } from "../src/search/evidence.js";
 
 const apiKey = process.env.OBSIDIAN_API_KEY;
-const query = process.argv.slice(2).join(" ");
+// Trim before the empty check so a whitespace-only query is rejected instead
+// of running a meaningless retrieval.
+const query = process.argv.slice(2).join(" ").trim();
 if (!apiKey || !query) {
   console.error("usage: OBSIDIAN_API_KEY=... node scripts/search-cli.mjs <query>");
   process.exit(1);
