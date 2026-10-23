@@ -15,6 +15,9 @@ import { pathToFileURL } from "node:url";
 import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 import { McpClient } from "../src/obsidian/mcp-client.js";
 import { KarpathyDriver, WikiIngestTimeoutError } from "../src/wiki/karpathy-driver.js";
+import { appendCompileEvent } from "../src/obsidian/compile-status.js";
+import { resolveStateDir } from "../src/ingest/state-dir.js";
+import { join } from "node:path";
 
 // Same documented OBSIDIAN_BASE_URL fallback as the other CLIs.
 const BASE_URL = process.env.OBSIDIAN_BASE_URL ?? "https://127.0.0.1:27124";
@@ -67,6 +70,13 @@ async function main() {
   }
   const client = new ObsidianClient({ baseUrl: BASE_URL, apiKey });
   const adapter = new ObsidianAdapter(client);
+  if (arg === "status") {
+    const statusFile = process.env.OBSIDIAN_COMPILE_STATUS ?? join(resolveStateDir(import.meta.url), "compile-status.json");
+    const { readCompileStatus } = await import("../src/obsidian/compile-status.js");
+    const s = await readCompileStatus(statusFile);
+    console.log(JSON.stringify(s, null, 2));
+    return;
+  }
   if (arg === "pending") {
     try {
       const pending = await pendingSources(adapter);
@@ -80,16 +90,22 @@ async function main() {
   // compile one source note
   const mcp = new McpClient({ baseUrl: BASE_URL, apiKey });
   const driver = new KarpathyDriver({ adapter, mcp });
+  const statusFile = process.env.OBSIDIAN_COMPILE_STATUS ?? join(resolveStateDir(import.meta.url), "compile-status.json");
   try {
+    await appendCompileEvent(statusFile, { stage: "triggered", source: arg });
     const snapshot = await driver.snapshotWiki();
+    await appendCompileEvent(statusFile, { stage: "waiting", source: arg });
     await driver.openAndIngest(arg);
     const compile = await driver.waitForIngest({ snapshot });
+    await appendCompileEvent(statusFile, { stage: "done", source: arg });
     console.log(JSON.stringify({ status: "compiled", created: compile.created, elapsedMs: compile.elapsedMs }, null, 2));
   } catch (err) {
     if (err instanceof WikiIngestTimeoutError) {
+      await appendCompileEvent(statusFile, { stage: "timeout", source: arg, message: "rate limit or slow compile" });
       console.log(JSON.stringify({ status: "timeout", message: "no wiki pages within the timeout; the karpathywiki backend may be rate-limited (request burst). Cool down before retrying; the source note is safe to leave un-translated.", source: arg }, null, 2));
       process.exitCode = 3;
     } else {
+      await appendCompileEvent(statusFile, { stage: "error", source: arg, message: errorMessage(err) });
       console.log(JSON.stringify({ status: "error", message: errorMessage(err) }, null, 2));
       process.exitCode = 1;
     }
