@@ -34,5 +34,30 @@
     "learning",
     "obsidian"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh": "^0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh": {
+      "optional": true
+    }
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "dsh-plugin.json",
+    "skills",
+    "src",
+    "scripts",
+    "tests",
+    "package.json",
+    "README.md",
+    "README-zh.md",
+    "LICENSE"
+  ]
 }
