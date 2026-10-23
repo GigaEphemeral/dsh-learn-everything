@@ -24,6 +24,8 @@ function extractTerms(query) {
   return terms.slice(0, 3);
 }
 
+import { normalizeEvidence } from "./evidence.js";
+
 export class SearchRetriever {
   constructor({ adapter, wikiDir = "wiki" }) {
     this.adapter = adapter;
@@ -59,14 +61,13 @@ export class SearchRetriever {
     for (const h of hits) {
       const isWiki = h.path.startsWith(this.wikiDir + "/");
       if (h.path === "wiki/log.md" || h.path === "wiki/index.md" || h.path.startsWith("wiki/schema/")) continue;
-      results.push({
-        title: h.path.split("/").pop().replace(/\.md$/, ""),
+      results.push(normalizeEvidence({
         path: h.path,
-        resultType: isWiki ? "wiki_page" : h.path.startsWith("Sources/") || h.path.startsWith("Inbox/") ? "source_note" : "search_result",
+        title: h.path.split("/").pop().replace(/\.md$/, ""),
         excerpt: h.excerpt,
         retrievalMethod: "simple_search",
-        confidence: "candidate",
-      });
+        resultType: isWiki ? "wiki_page" : undefined,
+      }));
     }
     // Wiki pages first, then source notes, then the rest.
     const rank = { wiki_page: 0, source_note: 1, search_result: 2 };

@@ -1,11 +1,11 @@
 {
   "records": [
     {
-      "contentHash": "b0398974c3de088cac1aa52090584542c5a62f2d44f26c7c4d12865772b226f0",
-      "sourceUri": "file://.state/e2e/feynman-technique.md",
-      "title": "feynman-technique",
-      "vaultPath": "Sources/feynman-technique.md",
-      "ingestedAt": "2026-10-22T18:01:38.776Z"
+      "contentHash": "2290a3d934848dbbfb467572870f9e274eb73e7f6a3011c6483edbca4f2d8dfb",
+      "sourceUri": "file://.state/e2e/dsh-plugin-dev-patterns.md",
+      "title": "dsh-plugin-dev-patterns",
+      "vaultPath": "Sources/dsh-plugin-dev-patterns.md",
+      "ingestedAt": "2026-10-23T03:09:22.315Z"
     }
   ]
 }
