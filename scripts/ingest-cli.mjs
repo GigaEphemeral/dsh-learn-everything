@@ -14,6 +14,7 @@ import { ObsidianClient, ObsidianAdapter } from "../src/obsidian/obsidian-adapte
 import { McpClient } from "../src/obsidian/mcp-client.js";
 import { KarpathyDriver } from "../src/wiki/karpathy-driver.js";
 import { SourceRegistry } from "../src/ingest/registry.js";
+import { resolveStateDir } from "../src/ingest/state-dir.js";
 import { IngestPipeline } from "../src/ingest/pipeline.js";
 import { IngestTask } from "../src/ingest/task-state.js";
 import { fetchUrl, readLocalFile, normalizeSource } from "../src/ingest/source-fetch.js";
@@ -21,7 +22,7 @@ import { fetchUrl, readLocalFile, normalizeSource } from "../src/ingest/source-f
 const apiKey = process.env.OBSIDIAN_API_KEY;
 const target = process.argv[2];
 const autoYes = process.argv.includes("--auto-yes");
-// State dir resolves relative to this script (code/scripts -> code/.state),
+// State dir resolves relative to this script (code/scripts -> code/.state).
 if (!apiKey || !target) {
   console.error("usage: OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <url|local-md> [--auto-yes]");
   process.exit(1);
@@ -43,7 +44,7 @@ const client = new ObsidianClient({ baseUrl, apiKey });
 const adapter = new ObsidianAdapter(client);
 const mcp = new McpClient({ baseUrl, apiKey });
 const driver = new KarpathyDriver({ adapter, mcp });
-const registry = await new SourceRegistry({ filePath: join(stateDir, "sources.json") }).load();
+const registry = await new SourceRegistry({ filePath: join(resolveStateDir(import.meta.url), "sources.json") }).load();
 
 const source = await acquire(target);
 console.log("source:", JSON.stringify({ title: source.title, uri: source.sourceUri, hash: source.contentHash.slice(0, 16) }, null, 2));
