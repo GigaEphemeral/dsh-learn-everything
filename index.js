@@ -24,13 +24,17 @@ export const inject = ['skills']
 import { registerObsidianRoutes } from './src/sidebar/routes.js'
 
 export function apply(ctx) {
-  // R2: serve Obsidian data to the right-sidebar panel over fenced routes
-  // when the host exposes webServer + connection and an API key is present.
+  // R2: serve Obsidian data to the right-sidebar panel over fenced routes.
+  // Config comes from the environment (OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL).
+  // webServer + connection are injected conditionally: Cordis forbids touching
+  // a service that is not in the inject list, so we access them inside
+  // ctx.inject(...); when the host does not expose them the callback never
+  // runs and the routes are simply absent.
   const obsidianApiKey = process.env.OBSIDIAN_API_KEY
+  const obsidianBaseUrl = process.env.OBSIDIAN_BASE_URL ?? 'https://127.0.0.1:27124'
   if (obsidianApiKey) {
-    registerObsidianRoutes(ctx, {
-      apiKey: obsidianApiKey,
-      baseUrl: process.env.OBSIDIAN_BASE_URL ?? 'https://127.0.0.1:27124',
+    ctx.inject(['webServer', 'connection'], (injected) => {
+      registerObsidianRoutes(injected, { apiKey: obsidianApiKey, baseUrl: obsidianBaseUrl })
     })
   }
 

@@ -135,7 +135,9 @@ export function makeRouteHandlers(data) {
   return handlers;
 }
 
-// Register every route with host fencing. Returns route registration disposers.
+// Register every route with host fencing. ctx must be the injected context
+// (webServer + connection available, per Cordis inject rules). Returns the
+// route registration disposers.
 export function registerObsidianRoutes(ctx, { apiKey, baseUrl, compileStatusFile = null }) {
   const data = createObsidianData({ apiKey, baseUrl, compileStatusFile });
   const handlers = makeRouteHandlers(data);
