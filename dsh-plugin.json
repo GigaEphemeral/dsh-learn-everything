@@ -1,0 +1,26 @@
+{
+  "manifestVersion": "0.15",
+  "id": "dsh-learn-everything",
+  "name": "dsh-learn-everything",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "DSH + Obsidian 个人知识学习插件：知识摄入 / 知识检索 / 学习训练（LLM 即时出题）。",
+  "facets": {
+    "host": {
+      "entry": "index.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "requires": { "contracts": [] },
+  "permissions": [],
+  "contributes": {
+    "x-display": [
+      {
+        "title": "dsh-learn-everything",
+        "description": "DSH + Obsidian 个人知识学习插件（摄入/检索/每日一练）",
+        "locales": []
+      }
+    ]
+  },
+  "subscriptions": []
+}
