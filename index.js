@@ -21,7 +21,19 @@ const SKILLS_ROOT = fileURLToPath(new URL('./skills/', import.meta.url))
 export const name = 'dsh-learn-everything'
 export const inject = ['skills']
 
+import { registerObsidianRoutes } from './src/sidebar/routes.js'
+
 export function apply(ctx) {
+  // R2: serve Obsidian data to the right-sidebar panel over fenced routes
+  // when the host exposes webServer + connection and an API key is present.
+  const obsidianApiKey = process.env.OBSIDIAN_API_KEY
+  if (obsidianApiKey) {
+    registerObsidianRoutes(ctx, {
+      apiKey: obsidianApiKey,
+      baseUrl: process.env.OBSIDIAN_BASE_URL ?? 'https://127.0.0.1:27124',
+    })
+  }
+
   ctx.skills.registerProvider(() => ({
     name: PROVIDER_NAME,
     async list(options) {
