@@ -61,6 +61,38 @@ node scripts/search-cli.mjs "什么是间隔重复"
 # 每日练习（LLM 即时出题；见 skills/daily-practice）
 ```
 
+
+## 知识资产与 Obsidian Vault 目录结构
+
+正式 Vault 为 `learnEverything`。按归属分割，DSH 写入不会污染人工维护或插件托管的内容：
+
+| 目录 | 职责 | 归属 | 说明 |
+|---|---|---|---|
+| `Sources/` | **摄入原文存放处** —— 每次摄入的 URL/本地文件以 `<slug>.md` 落在这里（frontmatter：source_uri/source_id/content_hash/fetched_at + 原文正文） | DSH 写入、用户阅读 | 只 create、绝不覆盖 |
+| `Learning/{MOC,Plans,Questions,Reviews,Projects}` | 人工维护的学习资产 | 用户（DSH 辅助） | 当前为空 |
+| `Inbox/` | 待处理材料 | 用户 | 空 |
+| `wiki/` | karpathywiki **派生**知识网：`concepts/ entities/ sources/` + `index.md log.md schema/config.md` | 插件自动生成 | 可重建；不得视为原始知识 |
+
+边界：`Sources/`+`Learning/`＝正式知识；`wiki/`＝派生可重建；学习状态（作答/复习/掌握度）存 SQLite（决策 B），**绝不**写入 Vault 笔记。
+
+### 摄入流程（原文去向）
+```
+URL（仅 https）或本地 .md
+  → 规范化（sha256 content_hash、source_id）
+  → 预检（code/.state/sources.json 注册表精确查重 + wiki/sources 同 slug 相似查重）
+  → 用户确认 ×2（范围、写入计划）
+  → create-only 写入 → Sources/<slug>.md   ← 原文正文存于此
+  → 读回校验
+  → karpathywiki 编译 → wiki/ 派生页（source_file 可追溯）
+  → 注册表记录（hash → vault 路径）
+```
+
+> 说明：REST API 只列出非空目录；空文件夹（Learning/*、Inbox）在磁盘存在但不出现在 `/vault/` 列表。
+
+### 当前 Vault 状态（2026-10-23）
+- `Sources/dsh-plugin-dev-patterns.md` 及对应 `wiki/` 页（1 source + concepts + entities）
+- 遗留杂项待清理确认：根目录 `concepts/间隔重复.md`（游离）、`_p1-test/`（P1 临时）、`未命名.base`（Obsidian 文件）
+
 ## 自测
 ```bash
 npm test                                  # 29 项单测（无网络）

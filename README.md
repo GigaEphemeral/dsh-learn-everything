@@ -64,6 +64,38 @@ node scripts/search-cli.mjs "what is spaced repetition"
 # Daily practice (LLM-driven, on-demand; see skills/daily-practice)
 ```
 
+
+## Knowledge assets & Obsidian vault layout
+
+The formal vault is `learnEverything`. Knowledge is split by ownership so DSH writes never pollute human-maintained or plugin-managed content:
+
+| Directory | Responsibility | Owner | Notes |
+|---|---|---|---|
+| `Sources/` | **Ingested originals** — every ingested URL/local file lands here as `<slug>.md` (frontmatter: source_uri/source_id/content_hash/fetched_at + the original body) | DSH writes; user reads | create-only, never overwrite |
+| `Learning/{MOC,Plans,Questions,Reviews,Projects}` | Human-maintained learning assets | User (DSH assists) | currently empty |
+| `Inbox/` | Pending materials | User | empty |
+| `wiki/` | KarpathyWiki **derived** network: `concepts/ entities/ sources/` + `index.md log.md schema/config.md` | Plugin auto-generates | rebuildable; never treat as original knowledge |
+
+Boundaries: `Sources/` + `Learning/` = formal knowledge. `wiki/` = derived, rebuildable. Learning state (attempts/review/mastery) lives in SQLite (decision B), **never** written into vault notes.
+
+### Ingest flow (where the original goes)
+```
+URL (https-only) or local .md
+  → normalize (sha256 content_hash, source_id)
+  → preflight (exact hash via code/.state/sources.json registry + wiki/sources slug match)
+  → user confirmation ×2 (scope, write plan)
+  → create-only write → Sources/<slug>.md   ← original text lives here
+  → read-back verify
+  → karpathywiki compile → wiki/ derived pages (traceable via source_file)
+  → registry record (hash → vault path)
+```
+
+> Note: the REST API lists only non-empty directories; empty folders (Learning/*, Inbox) exist on disk but do not appear in `/vault/` listings.
+
+### Current vault state (2026-10-23)
+- `Sources/dsh-plugin-dev-patterns.md` + `wiki/` pages for it (1 source page, concepts, entities)
+- Leftover artifacts pending cleanup: root `concepts/间隔重复.md` (stray), `_p1-test/` (P1 scratch), `未命名.base` (Obsidian file) — confirm before deleting.
+
 ## Self-test
 ```bash
 npm test                                  # 29 unit tests (no network)
