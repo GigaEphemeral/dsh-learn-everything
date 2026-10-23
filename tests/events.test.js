@@ -1,45 +1,50 @@
-// Unit tests for vault event subscription (S4).
+// Unit tests for vault event subscription (S4, injectable transport).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { subscribeVaultEvent, streamEvents, VaultEventError } from "../src/obsidian/events.js";
 
-test("subscribeVaultEvent posts and returns the signed stream URL", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, opts) => {
-    assert.match(url, /\/events\/vault\/modify\/$/);
-    assert.equal(opts.method, "POST");
-    assert.equal(opts.headers.Authorization, "Bearer k");
-    return { ok: true, status: 201, json: async () => ({ id: "x1", url: "https://e/s?sig=1", signed: true }) };
+function fakeTransport(handler) {
+  return (opts, cb) => {
+    const res = new EventEmitter();
+    res.statusCode = handler.statusCode;
+    res.headers = {};
+    queueMicrotask(() => cb(res));
+    setTimeout(() => {
+      if (handler.data) res.emit("data", Buffer.from(handler.data));
+      res.emit("end");
+    }, 5);
+    const req = new EventEmitter();
+    req.setTimeout = () => {};
+    req.write = () => {};
+    req.end = () => {};
+    req.destroy = () => { res.emit("error", new Error("aborted")); };
+    return req;
   };
-  try {
-    const r = await subscribeVaultEvent({ baseUrl: "https://h", apiKey: "k", event: "modify" });
-    assert.equal(r.url, "https://e/s?sig=1");
-    assert.equal(r.signed, true);
-  } finally { globalThis.fetch = originalFetch; }
+}
+
+test("subscribeVaultEvent posts and returns the signed stream URL", async () => {
+  const r = await subscribeVaultEvent({
+    baseUrl: "https://h", apiKey: "k", event: "modify",
+    transport: fakeTransport({ statusCode: 201, data: JSON.stringify({ id: "x1", url: "https://e/s?sig=1", signed: true }) }),
+  });
+  assert.equal(r.url, "https://e/s?sig=1");
+  assert.equal(r.signed, true);
 });
 
 test("streamEvents reads SSE data lines", async () => {
-  const encoder = new TextEncoder();
-  const body = new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode("event: modify\ndata: {\"path\":\"wiki/x.md\"}\n\n"));
-      controller.close();
-    },
-  });
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({ ok: true, status: 200, body });
   const got = [];
-  try {
-    await streamEvents("https://e/s", { onEvent: (d) => got.push(d), stopMs: 5000 });
-    assert.equal(got.length, 1);
-    assert.ok(got[0].includes("wiki/x.md"));
-  } finally { globalThis.fetch = originalFetch; }
+  await streamEvents("https://e/s", {
+    onEvent: (d) => got.push(d), stopMs: 3000,
+    transport: fakeTransport({ statusCode: 200, data: "event: modify\ndata: {\"path\":\"wiki/x.md\"}\n\n" }),
+  });
+  assert.equal(got.length, 1);
+  assert.ok(got[0].includes("wiki/x.md"));
 });
 
 test("subscribeVaultEvent wraps HTTP errors", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({ ok: false, status: 401 });
-  try {
-    await assert.rejects(() => subscribeVaultEvent({ baseUrl: "https://h", apiKey: "k", event: "modify" }), VaultEventError);
-  } finally { globalThis.fetch = originalFetch; }
+  await assert.rejects(
+    () => subscribeVaultEvent({ baseUrl: "https://h", apiKey: "k", event: "modify", transport: fakeTransport({ statusCode: 401, data: "" }) }),
+    VaultEventError,
+  );
 });
