@@ -1,0 +1,238 @@
+{
+  "domain": "dsh-plugin-dev-patterns",
+  "note": "S1 评测集种子（30 题，7 类）。source=精确溯源 concept=概念 structure=结构 similar=相似词干扰 none=无答案 synthesis=跨笔记综合 conflict=来源冲突(future)。",
+  "cases": [
+    {
+      "category": "source",
+      "query": "dsh.bundle.patch 字段的值指向什么文件",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "source",
+      "query": "cordis.patch.yml 用什么语法注册组件",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "source",
+      "query": "插件代码文件的行数限制是多少",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "source",
+      "query": "插件方法行数不能超过多少",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "source",
+      "query": "dsh-plugin.json 的 manifestVersion 是什么",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md",
+        "wiki/concepts/dsh-plugin-json.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "source",
+      "query": "peerDependencies 需要声明哪些包",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "concept",
+      "query": "什么是 dsh.bundle.patch",
+      "expectEvidence": [
+        "wiki/concepts/dsh-bundle-patch.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "concept",
+      "query": "解释 cordis patch",
+      "expectEvidence": [
+        "wiki/concepts/cordis-patch.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "concept",
+      "query": "dsh-plugin.json 是干什么的",
+      "expectEvidence": [
+        "wiki/concepts/dsh-plugin-json.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "concept",
+      "query": "什么是 skill-bundle",
+      "expectEvidence": [
+        "wiki/concepts/skill-bundle.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "concept",
+      "query": "ctx.inject 和 ctx.get 是什么",
+      "expectEvidence": [
+        "wiki/concepts/ctx-inject-ctx-get.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "concept",
+      "query": "配置与校验模块怎么工作",
+      "expectEvidence": [
+        "wiki/concepts/配置与校验.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "concept",
+      "query": "工具注册的作用域是什么",
+      "expectEvidence": [
+        "wiki/concepts/工具注册.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "structure",
+      "query": "wiki 概念目录有哪些概念",
+      "expectEvidence": [
+        "wiki/concepts"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "structure",
+      "query": "wiki 实体有哪些",
+      "expectEvidence": [
+        "wiki/entities"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "structure",
+      "query": "Sources 目录有哪些来源笔记",
+      "expectEvidence": [
+        "wiki/sources",
+        "Sources/dsh-plugin-dev-patterns.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "similar",
+      "query": "bundle.patch 是什么",
+      "expectEvidence": [
+        "wiki/concepts/dsh-bundle-patch.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "similar",
+      "query": "补丁文件怎么配置",
+      "expectEvidence": [
+        "wiki/concepts/cordis-patch.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "similar",
+      "query": "manifest 文件是啥",
+      "expectEvidence": [
+        "wiki/concepts/dsh-plugin-json.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "similar",
+      "query": "技能包是什么",
+      "expectEvidence": [
+        "wiki/concepts/skill-bundle.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "none",
+      "query": "什么是傅里叶变换",
+      "expectNone": true,
+      "status": "active"
+    },
+    {
+      "category": "none",
+      "query": "解释 TCP 三次握手",
+      "expectNone": true,
+      "status": "active"
+    },
+    {
+      "category": "none",
+      "query": "量子力学基本原理",
+      "expectNone": true,
+      "status": "active"
+    },
+    {
+      "category": "none",
+      "query": "什么是间隔重复",
+      "expectNone": true,
+      "status": "active"
+    },
+    {
+      "category": "none",
+      "query": "Dijkstra 算法原理",
+      "expectNone": true,
+      "status": "active"
+    },
+    {
+      "category": "synthesis",
+      "query": "一个 DSH 插件如何注册进 profile",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md",
+        "wiki/concepts/cordis-patch.md",
+        "wiki/concepts/dsh-bundle-patch.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "synthesis",
+      "query": "插件怎么打包发布",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md",
+        "wiki/concepts/发布纪律.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "synthesis",
+      "query": "如何保证测试不被跳过",
+      "expectEvidence": [
+        "Sources/dsh-plugin-dev-patterns.md",
+        "wiki/concepts/发布纪律.md"
+      ],
+      "status": "active"
+    },
+    {
+      "category": "conflict",
+      "query": "插件行数限制是否有不同说法",
+      "expectNone": true,
+      "status": "future"
+    },
+    {
+      "category": "conflict",
+      "query": "manifestVersion 是否有冲突记录",
+      "expectNone": true,
+      "status": "future"
+    }
+  ]
+}

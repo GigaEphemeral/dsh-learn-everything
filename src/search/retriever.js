@@ -145,7 +145,21 @@ export class SearchRetriever {
     if (q.includes("标签") || q.includes("tag")) {
       return { kind: "tags", items: await this._tags() };
     }
-    return { kind: "files", items: await this._listAll() };
+    // Query-aware: list the wiki/Sources directory the query asks about.
+    const dir = this._structuralDir(q);
+    const res = dir ? await this.adapter.list(dir) : await this.adapter.list("");
+    const items = Array.isArray(res?.files) ? res.files : [];
+    return { kind: "files", dir, items };
+  }
+
+  // Which directory does a structural query target? Wiki dirs win over the
+  // root listing; a generic "structure" query falls back to the root.
+  _structuralDir(q) {
+    if (q.includes("概念")) return "wiki/concepts";
+    if (q.includes("实体")) return "wiki/entities";
+    if (q.includes("来源")) return "wiki/sources";
+    if (q.includes("source") || q.includes("original") || q.includes("原文")) return "wiki/sources";
+    return null;
   }
 
   async _tags() {

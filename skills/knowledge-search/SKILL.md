@@ -19,6 +19,16 @@ cd code && OBSIDIAN_API_KEY=... node scripts/search-cli.mjs "什么是间隔重�
 cd code && OBSIDIAN_API_KEY=... node scripts/search-cli.mjs "复习间隔 配置"
 ```
 
+## 答案合成（LLM 组织，带真实引用）
+- 用 search-cli 返回的 evidence（title/path/resultType/excerpt）组织答案，**不凭空写结论**。
+- 每条关键结论附引用：`[[真实路径]]` 或完整 vault 路径；引用必须真实存在。
+- **先看 sufficiency**：
+  - `supported` → 基于证据组织答案，可正常回答；
+  - `partial` → 能答的部分答并**明确说明缺哪部分证据**（用 sufficiency.gaps 的 code/message）；
+  - `none` → 明说「知识库中无此证据」，**不编造**、不凭常识硬答（除非用户明确要求常识回答并标注）。
+- 区分 Vault 内知识 vs 外部资料/常识：Vault 证据缺失时标注「此为常识/外部信息，非知识库证据」。
+- 检索失败/超时如实报告，不静默返回虚构结果。
+
 ## 纪律
 - 引用必须指向真实存在的笔记路径（wiki/sources/…、Sources/…）；禁止编造路径或行号
 - 证据不足时明确说明，不凭摘要推断精确事实
