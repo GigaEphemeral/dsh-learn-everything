@@ -16,6 +16,7 @@ import {
   WIKI_DIRS,
   collectNodes,
   extractSourceFile,
+  extractSourceLinks,
   listDir,
   parseWikiDirs,
   readNode,
@@ -319,4 +320,35 @@ test("wiki-node-cli rejects an unknown mode without attempting a request", () =>
   });
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /unknown mode/);
+});
+
+test("extractSourceLinks parses a sources: frontmatter list", () => {
+  const content = [
+    "---",
+    "type: concept",
+    "sources:",
+    '  - "[[sources/foo_1a2b3c]]"',
+    '  - "[[Sources/bar.md|Bar]]"',
+    "generation_complete: true",
+    "---",
+    "# body",
+  ].join("\n");
+  assert.deepEqual(extractSourceLinks(content), ["sources/foo_1a2b3c", "Sources/bar.md"]);
+});
+
+test("extractSourceFile falls back to the sources: list when source_file is absent", () => {
+  const content = [
+    "---",
+    "type: concept",
+    "sources:",
+    '  - "[[sources/foo_1a2b3c]]"',
+    "---",
+    "# body",
+  ].join("\n");
+  assert.equal(extractSourceFile(content), "sources/foo_1a2b3c");
+  // source_file wins over the list when both exist.
+  const both = content.replace("type: concept", 'type: concept\nsource_file: "[[Sources/original.md]]"');
+  assert.equal(extractSourceFile(both), "Sources/original.md");
+  // No source_file and no sources: list -> null.
+  assert.equal(extractSourceFile("---\ntype: concept\n---\nbody"), null);
 });

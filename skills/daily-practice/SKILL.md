@@ -15,12 +15,12 @@ DSH 是唯一入口。全程由 LLM 组织：抽节点 → 学习 → 出题 →
 
 1. **随机抽知识节点**：运行
    ```bash
-   cd code && node --env-file=.env scripts/wiki-node-cli.mjs random
+   cd code && node --env-file=.env scripts/wiki-node-cli.mjs context random
    ```
-   从 wiki 概念/实体/来源页随机返回一个关键词（含其 wiki 页路径与内容）。
+   一次返回：节点正文、来源路径（含 sources 回退）、以及该节点的学习状态摘要（SQLite）。
 
-2. **LLM 学习该节点**：读取该 wiki 页与其来源原文（wiki-node-cli.mjs 会给出），形成对节点的理解；
-   若内容不足，用知识检索（search-cli）补全。
+2. **LLM 学习该节点**：直接使用上一步的 context 输出即可 —— 节点正文 + 来源 + 学习摘要已齐；
+   **不要**再去翻目录/查环境变量/搜源码/搜 vault。仅当内容确实不足时才用 search-cli 补全。
 
 3. **（可选）联网搜索**：默认关闭。仅当用户明确要求，或该主题需要最新/扩展信息时，用 web_search 补充。
 
@@ -35,11 +35,14 @@ DSH 是唯一入口。全程由 LLM 组织：抽节点 → 学习 → 出题 →
 6. **犀利评价**：用户作答后，由 LLM 按以下 prompt 进行不留情面的评分与评价：
    > 你是严苛的学习教练。对照该知识节点的参考答案与评分标准，给用户的回答打 0-10 分，
    > 指出 2-4 个具体错误或盲点，给出改进方向。不客套、不回避，直接指出不足。
-   输出：分数 / 优点(1 条) / 具体问题 / 改进建议。
+   输出结构化（可写入 SQLite，适配现有字段）：
+   `{ score, correctness, key_mistakes, feedback, mastery_signal, follow_up_required }`
+   面向用户默认简洁：分数 / 最关键错误 / 改进建议；用户要求详细时再展开。
 
 7. **答错/不会/差 → 追问**：若分数低于及格线（如 <6）或用户明确表示不会：
-   - 调用 **grill-me** 技能，就该知识点苏格拉底式追问，
-   - 直到用户真正理解为止（不轻易放过）。
+   - **先在当前对话内做轻量追问**：每轮一问、有界（最多 3-4 轮）、命中即停；
+   - 仅在用户主动要求、或确实需要深度苏格拉底时，才调用 **grill-me** 技能；
+   - 用户已理解或主动结束时停止，不无条件、无上限追问。
 
 ## 持久化（决策 B：SQLite）
 - 每次出题后：`cd code && node scripts/practice-db.mjs question '<{questionId,version,type,topic,prompt,reference}'>`

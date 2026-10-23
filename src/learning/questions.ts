@@ -48,6 +48,15 @@ export class QuestionStore {
       .run(questionId, version, type, topic, prompt, reference, new Date().toISOString());
   }
 
+  // Questions generated for a topic (for learning-state summaries).
+  byTopic(topic: string): Array<{ questionId: string; version: number; type: string }> {
+    const t = requireText('topic', topic);
+    const rows = this.ldb.db
+      .prepare('SELECT question_id, version, type FROM questions WHERE topic = ? ORDER BY id')
+      .all(t) as Array<{ question_id: string; version: number; type: string }>;
+    return rows.map((r) => ({ questionId: r.question_id, version: r.version, type: r.type }));
+  }
+
   // Read one question. Without `version` the latest stored version is returned
   // (that is what "show me this question" means); with `version` the exact
   // version an attempt was answered against is returned.
