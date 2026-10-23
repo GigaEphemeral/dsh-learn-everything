@@ -11,18 +11,32 @@
 // Exit codes: 0 compiled / pending listed; 3 compile timed out (likely
 // rate-limited, cool down); 1 usage/operational error.
 
+import { pathToFileURL } from "node:url";
 import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 import { McpClient } from "../src/obsidian/mcp-client.js";
 import { KarpathyDriver, WikiIngestTimeoutError } from "../src/wiki/karpathy-driver.js";
 
-const BASE_URL = "https://127.0.0.1:27124";
+// Same documented OBSIDIAN_BASE_URL fallback as the other CLIs.
+const BASE_URL = process.env.OBSIDIAN_BASE_URL ?? "https://127.0.0.1:27124";
 
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
 // A source note is compiled when a wiki/sources page exists whose name equals
-// the slug or starts with slug_ (KarpathyWiki names pages <slug>_<hash>).
+// the slug or appends KarpathyWiki's hash suffix. The suffix must look like a
+// hash: slugs may legally contain "_" (e.g. foo_bar), so a bare prefix match
+// would hide the uncompiled foo when only foo_bar was compiled.
+const COMPILED_SUFFIX = /^[0-9a-f]{6,}$/i;
+const isMarkdown = (file) => /\.md$/i.test(file);
+const withoutExtension = (file) => file.replace(/\.md$/i, "");
+
+function isCompiled(slug, wikiName) {
+  if (wikiName === slug) return true;
+  if (!wikiName.startsWith(slug + "_")) return false;
+  return COMPILED_SUFFIX.test(wikiName.slice(slug.length + 1));
+}
+
 export async function pendingSources(adapter, sourcesDir = "Sources", wikiSourcesDir = "wiki/sources") {
   const list = async (dir) => {
     try {
@@ -34,11 +48,13 @@ export async function pendingSources(adapter, sourcesDir = "Sources", wikiSource
     }
   };
   const [sources, wikiPages] = await Promise.all([list(sourcesDir), list(wikiSourcesDir)]);
-  const wikiNames = wikiPages.map((f) => f.replace(/\.md$/i, ""));
+  const wikiNames = wikiPages.filter(isMarkdown).map(withoutExtension);
+  // Emit full source paths so the pending list chains directly into the compile
+  // mode (which takes Sources/xxx.md), instead of bare slugs.
   return sources
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => f.replace(/\.md$/i, ""))
-    .filter((slug) => !wikiNames.some((p) => p === slug || p.startsWith(slug + "_")));
+    .filter(isMarkdown)
+    .filter((file) => !wikiNames.some((wikiName) => isCompiled(withoutExtension(file), wikiName)))
+    .map((file) => `${sourcesDir}/${file}`);
 }
 
 async function main() {
@@ -79,8 +95,6 @@ async function main() {
     }
   }
 }
-
-import { pathToFileURL } from "node:url";
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {

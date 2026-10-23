@@ -46,3 +46,39 @@ test("truncates over maxLength", () => {
 test("throws on non-string input", () => {
   assert.throws(() => htmlToMarkdown(null), HtmlMdError);
 });
+
+test("preserves preformatted line breaks and indentation", () => {
+  const { markdown } = htmlToMarkdown("<body><pre><code>line1\n    line2\nline3</code></pre></body>");
+  assert.ok(markdown.includes("line1\n    line2\nline3"), "code block must keep its layout");
+  assert.ok(!markdown.includes("line1     line2"), "whitespace must not be collapsed");
+});
+
+test("nested list items are not duplicated into the parent bullet", () => {
+  const { markdown } = htmlToMarkdown("<body><ul><li>b<ul><li>c</li></ul></li></ul></body>");
+  assert.ok(markdown.includes("- b"));
+  assert.ok(markdown.includes("  - c"));
+  assert.ok(!markdown.includes("- bc"), "the child item must not be inlined into the parent");
+});
+
+test("drops javascript:/data: link targets but keeps safe schemes", () => {
+  const { markdown } = htmlToMarkdown(
+    '<body><a href="javascript:alert(1)">x</a><img src="data:image/png;base64,AAA"><a href="mailto:a@b">m</a></body>',
+    { baseUrl: "https://example.com/" },
+  );
+  assert.ok(!markdown.includes("javascript:"), "javascript: URLs must not reach the note");
+  assert.ok(!markdown.includes("data:"), "data: images must not reach the note");
+  assert.ok(!markdown.includes("[x]("), "the unsafe link must lose its target");
+  assert.ok(markdown.includes("[m](mailto:a@b)"), "mailto remains allowed");
+});
+
+test("renders blockquote children as separate quoted lines", () => {
+  const { markdown } = htmlToMarkdown("<body><blockquote><p>a</p><p>b</p></blockquote></body>");
+  assert.ok(markdown.includes("> a"));
+  assert.ok(markdown.includes("> b"));
+  assert.ok(!markdown.includes("> ab"), "paragraphs must not be concatenated");
+});
+
+test("keeps spaces inside inline code", () => {
+  const { markdown } = htmlToMarkdown("<body><p>use <code>a  b</code> now</p></body>");
+  assert.ok(markdown.includes("`a  b`"));
+});

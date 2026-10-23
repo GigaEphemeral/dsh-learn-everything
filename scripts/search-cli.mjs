@@ -15,7 +15,8 @@ if (!apiKey || !query) {
   process.exit(1);
 }
 
-const client = new ObsidianClient({ baseUrl: "https://127.0.0.1:27124", apiKey });
+const BASE_URL = process.env.OBSIDIAN_BASE_URL ?? "https://127.0.0.1:27124";
+const client = new ObsidianClient({ baseUrl: BASE_URL, apiKey });
 const adapter = new ObsidianAdapter(client);
 const retriever = new SearchRetriever({ adapter });
 const intent = classifyIntent(query);

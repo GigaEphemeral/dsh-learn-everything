@@ -120,4 +120,23 @@ export class AttemptStore {
     const row = this.ldb.db.prepare('SELECT COUNT(*) AS n FROM attempts').get() as { n: number };
     return row.n;
   }
+
+  // Aggregate attempt outcomes for a set of question ids (learning summary).
+  // Duplicate ids are collapsed: one question id can have several versions, and
+  // an empty set is a zero total rather than invalid IN () SQL.
+  countByResult(questionIds: readonly string[]): { total: number; byResult: Record<string, number> } {
+    const ids = [...new Set(questionIds.filter((id) => typeof id === 'string' && id !== ''))];
+    const byResult: Record<string, number> = {};
+    if (ids.length === 0) return { total: 0, byResult };
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.ldb.db
+      .prepare(`SELECT result, COUNT(*) AS n FROM attempts WHERE question_id IN (${placeholders}) GROUP BY result`)
+      .all(...ids) as Array<{ result: string; n: number }>;
+    let total = 0;
+    for (const row of rows) {
+      byResult[row.result] = row.n;
+      total += row.n;
+    }
+    return { total, byResult };
+  }
 }

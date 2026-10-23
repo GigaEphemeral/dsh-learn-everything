@@ -19,8 +19,10 @@ function sha256(text) {
 }
 
 // Fetch an HTTPS URL with a hard size cap and timeout. HTTP (non-TLS) and
-// file:// are refused; redirects are followed only within https.
-export async function fetchUrl(url, { maxBytes = 512 * 1024, timeoutMs = 20000 } = {}) {
+// file:// are refused. With `withMetadata`, HTML responses also return the
+// extracted page title so the ingest note title does not depend on the first
+// Markdown line.
+export async function fetchUrl(url, { maxBytes = 512 * 1024, timeoutMs = 20000, withMetadata = false } = {}) {
   let u;
   try {
     u = new URL(url);
@@ -53,12 +55,15 @@ export async function fetchUrl(url, { maxBytes = 512 * 1024, timeoutMs = 20000 }
     // Deterministic HTML -> Markdown so the skill never hand-writes a
     // converter (S3, T1). Original bytes are not kept.
     try {
-      return htmlToMarkdown(text, { baseUrl: url }).markdown;
+      // Relative links must resolve against the final response URL, not the
+      // pre-redirect request URL (e.g. /page -> /page/ or a locale redirect).
+      const parsed = htmlToMarkdown(text, { baseUrl: res.url || url });
+      return withMetadata ? parsed : parsed.markdown;
     } catch (err) {
       throw new SourceFetchError(`HTML to Markdown failed: ${err.message}`, { code: "html" });
     }
   }
-  return text;
+  return withMetadata ? { markdown: text, title: null } : text;
 }
 
 function looksLikeHtml(text) {

@@ -15,16 +15,34 @@ export class HtmlMdError extends Error {
 
 const NOISE = "script,style,noscript,template,iframe,form,svg,nav,button,input,select,textarea,canvas,aside";
 
+const ALLOWED_SCHEMES = new Set(["http:", "https:", "mailto:"]);
+
+function hasScheme(url) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url);
+}
+
+// Resolve a link/image target and drop dangerous schemes. Untrusted HTML must
+// not be able to write javascript:/data: links into the Markdown note (which
+// Obsidian would then render).
 function absolutize(url, baseUrl) {
   if (!url) return null;
   if (baseUrl) {
     try {
-      return new URL(url, baseUrl).href;
+      const parsed = new URL(url, baseUrl);
+      return ALLOWED_SCHEMES.has(parsed.protocol) ? parsed.href : null;
     } catch {
-      return url;
+      return null;
     }
   }
-  return url;
+  // Without a base URL, only a scheme-less relative path is kept as-is; an
+  // absolute URL must still pass the allowlist.
+  if (!hasScheme(url)) return url;
+  try {
+    const parsed = new URL(url);
+    return ALLOWED_SCHEMES.has(parsed.protocol) ? parsed.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function textOnly($, el) { return (el.text() || "").replace(/\s+/g, " ").trim(); }
@@ -42,6 +60,7 @@ function inline($, el, baseUrl) {
     switch (tag) {
       case "strong": case "b": parts.push("**" + inline($, n, baseUrl) + "**"); break;
       case "em": case "i": parts.push("*" + inline($, n, baseUrl) + "*"); break;
+      // Preserve spaces inside inline code; textOnly() would collapse them.
       case "code": parts.push("`" + n.text().trim() + "`"); break;
       case "a": {
         const href = absolutize(n.attr("href"), baseUrl);
@@ -59,7 +78,9 @@ function inline($, el, baseUrl) {
       default: parts.push(inline($, n, baseUrl));
     }
   });
-  return parts.join("").replace(/\s+/g, " ").trim();
+  // Text nodes are already whitespace-collapsed individually; do not collapse
+  // the joined result or line breaks from <br> and spaces inside <code> vanish.
+  return parts.join("").trim();
 }
 
 function renderList($, el, marker, depth, baseUrl) {
@@ -69,7 +90,11 @@ function renderList($, el, marker, depth, baseUrl) {
   $(el).children("li").each((_, li) => {
     const $li = $(li);
     const prefix = marker === "1" ? `${pad}${index}. ` : `${pad}- `;
-    lines.push(prefix + inline($, $li, baseUrl));
+    // Inline the item's own content only: nested lists are rendered separately
+    // below, and recursing into them here would duplicate their items.
+    const $item = $li.clone();
+    $item.children("ul,ol").remove();
+    lines.push(prefix + inline($, $item, baseUrl));
     index += 1;
     $li.children("ul,ol").each((_, ul) => {
       const m = $(ul).prop("tagName").toLowerCase() === "ol" ? "1" : "-";
@@ -102,9 +127,24 @@ function render($, el, depth, baseUrl) {
     case "p": return inline($, el, baseUrl) + "\n\n";
     case "br": return "\n";
     case "hr": return "\n---\n";
-    case "blockquote": return "> " + inline($, el, baseUrl) + "\n\n";
-    case "pre": return "\n```\n" + textOnly($, el).replace(/\n+$/, "") + "\n```\n";
-    case "code": return "`" + textOnly($, el) + "`";
+    case "blockquote": {
+      // Render children as blocks so paragraphs/lists keep their structure, then
+      // prefix every produced line. Inlining here concatenated paragraphs.
+      const inner = [];
+      $(el).children().each((_, child) => {
+        const rendered = render($, $(child), depth, baseUrl);
+        if (rendered && rendered.trim()) inner.push(rendered.trim());
+      });
+      const body = inner.length > 0 ? inner.join("\n") : inline($, el, baseUrl);
+      return body.split("\n").map((line) => (line === "" ? ">" : "> " + line)).join("\n") + "\n\n";
+    }
+    // Preserve preformatted content: el.text() keeps line breaks/indentation,
+    // while textOnly() flattened code blocks into a single line.
+    case "pre": {
+      const code = (el.text() || "").replace(/^\n+/, "").replace(/\n+$/, "");
+      return "\n```\n" + code + "\n```\n";
+    }
+    case "code": return "`" + (el.text() || "") + "`";
     case "strong": case "b": return "**" + inline($, el, baseUrl) + "**";
     case "em": case "i": return "*" + inline($, el, baseUrl) + "*";
     case "a": {
@@ -126,7 +166,11 @@ function render($, el, depth, baseUrl) {
         const r = render($, $(ch), depth, baseUrl);
         if (r && r.trim()) parts.push(r);
       });
-      if (!parts.length) return (inline($, el, baseUrl) ? inline($, el, baseUrl) + "\n" : "");
+      if (!parts.length) {
+        // Compute the inline fallback once; it is a full recursive walk.
+        const text = inline($, el, baseUrl);
+        return text ? text + "\n" : "";
+      }
       return parts.join("\n") + "\n";
     }
   }

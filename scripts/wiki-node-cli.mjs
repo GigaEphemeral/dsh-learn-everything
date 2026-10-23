@@ -15,7 +15,7 @@
 import { pathToFileURL } from "node:url";
 import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian/obsidian-adapter.js";
 
-const BASE_URL = "https://127.0.0.1:27124";
+const BASE_URL = process.env.OBSIDIAN_BASE_URL ?? "https://127.0.0.1:27124";
 const MAX_CONTENT_CHARS = 2000;
 
 // The wiki is compiled into these directories. OBSIDIAN_WIKI_DIRS overrides the
@@ -48,30 +48,32 @@ function errorMessage(err) {
 function parseLink(value) {
   const link = String(value || "").match(/\[\[([^\]\n]+?)\]\]/)?.[1];
   if (!link) return null;
-  const sourcePath = link.split("|")[0].trim();
+  // Drop a wikilink alias and then a heading/block anchor: only the note path
+  // is a resolvable vault path.
+  const sourcePath = link.split("|")[0].split("#")[0].trim();
   return sourcePath === "" ? null : sourcePath;
 }
 
+// Parse the frontmatter `sources:` bullet list only. The scan stops at the
+// closing `---` or at the first non-bullet line, so body bullets that happen to
+// contain wikilinks are never captured as sources.
 export function extractSourceLinks(content) {
   if (typeof content !== "string") return [];
-  const block = content.match(/^sources:\s*$/m) ? content.slice(content.match(/^sources:\s*$/m).index) : "";
-  if (!block) return [];
-  const header = block.match(/^sources:\s*$/m);
-  const start = header ? header.index : -1;
-  if (start < 0) return [];
-  const lines = block.slice(start + header[0].length).split("\n");
   const out = [];
-  for (const line of lines) {
+  let inSources = false;
+  for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
-    if (trimmed === "") continue;
-    if (trimmed.startsWith("-")) {
-      const p = parseLink(trimmed);
-      if (p) out.push(p);
-    } else if (/^[a-z_]+:/.test(trimmed)) {
-      break; // next frontmatter key
-    } else if (out.length) {
-      break;
+    if (!inSources) {
+      if (/^sources:\s*$/.test(trimmed)) inSources = true;
+      continue;
     }
+    if (trimmed === "---" || trimmed === "") {
+      if (trimmed === "---") break;
+      continue;
+    }
+    if (!trimmed.startsWith("-")) break;
+    const link = parseLink(trimmed);
+    if (link) out.push(link);
   }
   return out;
 }
@@ -148,15 +150,16 @@ export async function loadNode(adapter, node) {
   };
 }
 
-// One JSON shape for both modes. `keyword` is the file stem for a random node
-// and the requested name for an explicit lookup, so a caller can parse a single
-// shape and still know which node it got.
-function emitNode(node, keyword, loaded) {
+// One JSON shape for both modes. `keyword` is always the node's file stem, so
+// the learning summary keys on the real concept/topic name even when the caller
+// looked the node up by file name or path.
+function emitNode(node, loaded) {
   return {
-    keyword,
+    keyword: nodeName(node.file),
     type: nodeType(node),
     path: node.path,
     sourceFile: loaded.sourceFile,
+    sources: loaded.sources,
     content: loaded.content,
     truncated: loaded.truncated,
   };
@@ -168,7 +171,7 @@ export async function randomNode(adapter) {
     throw new Error("wiki is empty; ingest sources first");
   }
   const pick = nodes[Math.floor(Math.random() * nodes.length)];
-  return emitNode(pick, nodeName(pick.file), await loadNode(adapter, pick));
+  return emitNode(pick, await loadNode(adapter, pick));
 }
 
 // Learning-state summary for a node, read from SQLite (decision B). Returns
@@ -194,13 +197,26 @@ export async function learningSummaryForNode(keyword) {
 // deterministic sources: fallback), and the SQLite learning-state summary.
 export async function contextNode(adapter, name) {
   const nodes = await collectNodes(adapter);
-  const pick = name === "random"
-    ? nodes[Math.floor(Math.random() * nodes.length)]
-    : nodes.find((node) => nodeName(node.file) === name || node.file === name);
+  let pick;
+  if (name === "random") {
+    if (nodes.length === 0) throw new Error("wiki is empty; ingest sources first");
+    pick = nodes[Math.floor(Math.random() * nodes.length)];
+  } else {
+    pick = nodes.find((node) => nodeName(node.file) === name || node.file === name);
+  }
   if (!pick) throw new Error(`node "${name}" not found`);
   const loaded = await loadNode(adapter, pick);
-  const keyword = name === "random" ? nodeName(pick.file) : name;
-  const learning = await learningSummaryForNode(keyword);
+  // Always derive the learning key from the node: the CLI argument may be a
+  // path/filename, which would query the DB with a bogus concept name.
+  const keyword = nodeName(pick.file);
+  // The node + sources payload is the primary output; a broken/locked learning
+  // DB must degrade to an error field, not abort the whole context command.
+  let learning;
+  try {
+    learning = await learningSummaryForNode(keyword);
+  } catch (err) {
+    learning = { error: errorMessage(err) };
+  }
   return {
     keyword,
     type: nodeType(pick),
@@ -219,7 +235,7 @@ export async function showNode(adapter, name) {
   if (!match) {
     throw new Error(`node "${name}" not found`);
   }
-  return emitNode(match, name, await loadNode(adapter, match));
+  return emitNode(match, await loadNode(adapter, match));
 }
 
 function createAdapter(apiKey) {
@@ -236,6 +252,11 @@ async function main() {
   }
   if (mode === "show" && !name) {
     console.error("show needs a name");
+    process.exitCode = 1;
+    return;
+  }
+  if (mode === "context" && !name) {
+    console.error("context needs a name (or 'random')");
     process.exitCode = 1;
     return;
   }

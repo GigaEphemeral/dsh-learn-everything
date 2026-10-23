@@ -22,6 +22,7 @@ import {
   readNode,
   randomNode,
   showNode,
+  contextNode,
 } from "../scripts/wiki-node-cli.mjs";
 import { createConfirm } from "../scripts/ingest-cli.mjs";
 
@@ -351,4 +352,65 @@ test("extractSourceFile falls back to the sources: list when source_file is abse
   assert.equal(extractSourceFile(both), "Sources/original.md");
   // No source_file and no sources: list -> null.
   assert.equal(extractSourceFile("---\ntype: concept\n---\nbody"), null);
+});
+
+test("extractSourceLinks stops at the frontmatter end and strips heading/block anchors", () => {
+  const content = [
+    "---",
+    "type: concept",
+    "sources:",
+    '  - "[[Sources/foo.md#Notes]]"',
+    '  - "[[Sources/bar.md#^blk|Bar]]"',
+    "---",
+    "# body",
+    "- [[Sources/not-a-source.md]]",
+  ].join("\n");
+  assert.deepEqual(extractSourceLinks(content), ["Sources/foo.md", "Sources/bar.md"]);
+  // A body bullet list after frontmatter must not become a source.
+  assert.deepEqual(extractSourceLinks("---\nsources:\n---\n- [[Body/x.md]]"), []);
+  // source_file carries the same anchor stripping.
+  assert.equal(extractSourceFile('---\nsource_file: "[[Sources/a.md#Heading]]"\n---\nbody'), "Sources/a.md");
+});
+
+test("context derives the learning key from the node, degrades when learning state is unreadable", async () => {
+  const adapter = {
+    list: async (dir) => ({ files: dir === "wiki/sources" ? ["Foo.md"] : [] }),
+    read: async () => "---\nsource_file: \"[[Sources/foo.md]]\"\nsources:\n  - \"[[Sources/foo.md]]\"\n---\nbody",
+  };
+  // A directory at the configured learning-DB path makes LearningDb throw; the
+  // node + sources payload must still be returned.
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const dir = await mkdtemp(join(tmpdir(), "wiki-learn-"));
+  const previous = process.env.OBSIDIAN_LEARNING_DB;
+  process.env.OBSIDIAN_LEARNING_DB = dir;
+  try {
+    const node = await contextNode(adapter, "Foo.md");
+    // The CLI argument was a filename; the summary key must be the file stem.
+    assert.equal(node.keyword, "Foo");
+    assert.equal(node.type, "sources");
+    assert.equal(node.sourceFile, "Sources/foo.md");
+    assert.deepEqual(node.sources, ["Sources/foo.md"]);
+    assert.ok(node.learning && typeof node.learning.error === "string", "learning failure must degrade, not abort");
+  } finally {
+    if (previous === undefined) delete process.env.OBSIDIAN_LEARNING_DB;
+    else process.env.OBSIDIAN_LEARNING_DB = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  // context random on an empty wiki uses the explicit empty-wiki message.
+  const empty = { list: async () => { throw notFound(); } };
+  await assert.rejects(() => contextNode(empty, "random"), /wiki is empty/);
+});
+
+test("randomNode/showNode forward the parsed sources list", async () => {
+  const body = "---\nsources:\n  - \"[[Sources/a.md]]\"\n  - \"[[Sources/b.md#H|B]]\"\n---\nbody";
+  const adapter = {
+    list: async (dir) => ({ files: dir === "wiki/concepts" ? ["n.md"] : [] }),
+    read: async () => body,
+  };
+  const node = await randomNode(adapter);
+  assert.deepEqual(node.sources, ["Sources/a.md", "Sources/b.md"]);
+  const shown = await showNode(adapter, "n");
+  assert.deepEqual(shown.sources, ["Sources/a.md", "Sources/b.md"]);
 });

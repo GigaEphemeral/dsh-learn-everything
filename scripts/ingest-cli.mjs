@@ -23,7 +23,7 @@ import { IngestPipeline } from "../src/ingest/pipeline.js";
 import { IngestTask } from "../src/ingest/task-state.js";
 import { fetchUrl, readLocalFile, normalizeSource } from "../src/ingest/source-fetch.js";
 
-const BASE_URL = "https://127.0.0.1:27124";
+const BASE_URL = process.env.OBSIDIAN_BASE_URL ?? "https://127.0.0.1:27124";
 const USAGE = "usage: OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <url|local-md> [--auto-yes] [--compile]";
 
 function errorMessage(err) {
@@ -35,8 +35,9 @@ function errorMessage(err) {
 // stores a stable, resolvable source identity.
 async function acquire(target) {
   if (/^https?:\/\//.test(target)) {
-    const content = await fetchUrl(target);
-    return normalizeSource({ sourceUri: target, title: undefined, content });
+    // HTML pages carry a real <title>; use it instead of the first Markdown line.
+    const { markdown, title } = await fetchUrl(target, { withMetadata: true });
+    return normalizeSource({ sourceUri: target, title: title ?? undefined, content: markdown });
   }
   const content = await readLocalFile(target);
   const title = basename(target).replace(/\.md$/i, "");
@@ -129,8 +130,9 @@ async function main() {
   const pipeline = new IngestPipeline({ adapter, registry, driver, task });
   const report = await pipeline.run({ source, confirm });
   console.log("\nreport:", JSON.stringify(report, null, 2));
-  if (!driver && report.status === "completed") {
-    console.log("hint: source stored without karpathywiki compile. To compile later:\n  node scripts/compile-cli.mjs Sources/<slug>.md   (or `compile-cli.mjs pending` to list untranslated sources)");
+  if (!driver && report.status === "completed" && report.plan) {
+    // Use the real written path so the hint is directly copy-pasteable.
+    console.log(`hint: source stored without karpathywiki compile. To compile later:\n  node scripts/compile-cli.mjs ${report.plan.targetPath}   (or \`node scripts/compile-cli.mjs pending\` to list untranslated sources)`);
   }
   // process.exitCode (not process.exit) so pending stdout writes are flushed
   // before the process exits.

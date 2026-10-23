@@ -99,3 +99,27 @@ test("fetchUrl converts HTML responses to Markdown deterministically", async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("fetchUrl metadata carries the page title and resolves links against the final URL", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    // A redirect changed the location; relative links must use this URL.
+    url: "https://example.com/final/page/",
+    headers: new Headers({ "content-type": "text/html" }),
+    arrayBuffer: async () => new TextEncoder().encode(
+      "<html><head><title>Page T</title></head><body><p>see <a href='rel'>rel</a></p></body></html>",
+    ),
+  });
+  try {
+    const meta = await fetchUrl("https://example.com/start", { withMetadata: true });
+    assert.equal(meta.title, "Page T");
+    assert.ok(meta.markdown.includes("[rel](https://example.com/final/page/rel)"));
+    // The legacy string shape is unchanged without the option.
+    const text = await fetchUrl("https://example.com/start");
+    assert.equal(typeof text, "string");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
