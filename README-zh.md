@@ -58,8 +58,7 @@ node scripts/ingest-cli.mjs <https-url|本地.md>
 # 检索（意图路由：概念探索/原文溯源/结构查询/综合）
 node scripts/search-cli.mjs "什么是间隔重复"
 
-# 每日练习（优先级：到期复习>薄弱>覆盖>新颖；自评 1-5）
-node scripts/practice-cli.mjs [题数]
+# 每日练习（LLM 即时出题；见 skills/daily-practice）
 ```
 
 ## 自测

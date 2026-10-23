@@ -61,8 +61,7 @@ node scripts/ingest-cli.mjs <https-url|local.md>
 # Search (intent routing: concept exploration / exact-source lookup / structural query / combined)
 node scripts/search-cli.mjs "what is spaced repetition"
 
-# Daily practice (priority: overdue > weakness > coverage > novelty; self-grade 1-5)
-node scripts/practice-cli.mjs [count]
+# Daily practice (LLM-driven, on-demand; see skills/daily-practice)
 ```
 
 ## Self-test

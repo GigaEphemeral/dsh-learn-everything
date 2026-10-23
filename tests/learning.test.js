@@ -1,12 +1,12 @@
 // Unit tests for the learning domain (P5).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildQuestionMarkdown, questionPath } from "../src/learning/question-store.js";
-import { ReviewScheduler } from "../src/learning/review-scheduler.js";
+import { buildQuestionMarkdown, questionPath } from "../archive/learning-legacy/question-store.js";
+import { ReviewScheduler } from "../archive/learning-legacy/review-scheduler.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AttemptStore } from "../src/learning/attempt-store.js";
+import { AttemptStore } from "../archive/learning-legacy/attempt-store.js";
 
 test("buildQuestionMarkdown carries the plan frontmatter contract", () => {
   const md = buildQuestionMarkdown({
