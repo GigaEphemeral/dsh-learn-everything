@@ -41,6 +41,14 @@ DSH 是唯一入口。全程由 LLM 组织：抽节点 → 学习 → 出题 →
    - 调用 **grill-me** 技能，就该知识点苏格拉底式追问，
    - 直到用户真正理解为止（不轻易放过）。
 
+## 持久化（决策 B：SQLite）
+- 每次出题后：`cd code && node scripts/practice-db.mjs question '<{questionId,version,type,topic,prompt,reference}'>`
+- 每次作答评价后：`node scripts/practice-db.mjs answer '<{questionId,questionVersion,phase,correct,result,score,answerSummary,modelRating,feedback,errorAnalysis,suggestions,concepts}>'`
+  - phase：首次作答 `first`；答错纠错后 `correction`；变式题 `variant`
+  - concepts：本题涉及的知识点（name + 掌握度 level 0..1 + source：first_answer/model_rating/correction/variant_pass）
+- 查看状态：`node scripts/practice-db.mjs status <questionId>`
+- **绝不写 Obsidian 笔记**；题目即时生成，仅记录版本与过程。
+
 ## 纪律
 - 题目与作答不写入 Obsidian 知识库（零持久化）；复习状态如需保留仅存 code/.state
 - 评分必须具体、犀利、可执行；禁止含糊表扬
