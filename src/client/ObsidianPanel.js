@@ -1,11 +1,40 @@
 // R3: the Obsidian right-sidebar panel (plain JS to avoid esbuild TSX quirks).
 // Fetches same-origin fenced routes (/obsidian/api/*) served by the plugin
-// backend; the API key never reaches the browser.
+// backend; the API key never reaches the browser. Notes render Markdown and
+// scroll inside the pane; the graph iframe fetches its own data so the huge
+// graph JSON never rides a request URL (which used to trigger HTTP 431).
 
 import { createElement, useState, useEffect } from 'react'
 import { routeErrorText } from '../sidebar/route-errors.js'
+import { renderMarkdown } from '../markdown/render.js'
 
 const DIRS = ['wiki/concepts', 'wiki/entities', 'wiki/sources', 'Sources']
+
+// Preview typography. The panel runs inside the host page, so the rules are
+// scoped to the preview class instead of restyling the page.
+const MD_STYLE = `
+.dsh-obsidian-md{color:#d7d7d7;font-size:13px;line-height:1.62;word-break:break-word}
+.dsh-obsidian-md h1,.dsh-obsidian-md h2,.dsh-obsidian-md h3,
+.dsh-obsidian-md h4,.dsh-obsidian-md h5,.dsh-obsidian-md h6{margin:14px 0 8px;line-height:1.3;color:#eee;font-weight:600}
+.dsh-obsidian-md h1{font-size:20px;border-bottom:1px solid #333;padding-bottom:4px}
+.dsh-obsidian-md h2{font-size:17px}
+.dsh-obsidian-md h3{font-size:15px}
+.dsh-obsidian-md p{margin:8px 0}
+.dsh-obsidian-md a{color:#6cb6ff;text-decoration:none}
+.dsh-obsidian-md a:hover{text-decoration:underline}
+.dsh-obsidian-md .dsh-obsidian-wikilink{color:#8fd694;border-bottom:1px dashed #4b7a52}
+.dsh-obsidian-md code{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:3px;padding:1px 4px;font-size:12px}
+.dsh-obsidian-md pre{background:#202020;border:1px solid #333;border-radius:4px;padding:10px;overflow-x:auto;margin:10px 0}
+.dsh-obsidian-md pre code{background:none;border:0;padding:0;white-space:pre}
+.dsh-obsidian-md blockquote{margin:10px 0;padding:2px 10px;border-left:3px solid #555;color:#aaa}
+.dsh-obsidian-md ul,.dsh-obsidian-md ol{margin:8px 0;padding-left:22px}
+.dsh-obsidian-md li{margin:3px 0}
+.dsh-obsidian-md table{border-collapse:collapse;margin:10px 0;font-size:12px}
+.dsh-obsidian-md th,.dsh-obsidian-md td{border:1px solid #444;padding:4px 8px}
+.dsh-obsidian-md th{background:#2b2b2b}
+.dsh-obsidian-md hr{border:0;border-top:1px solid #3a3a3a;margin:14px 0}
+.dsh-obsidian-md img{max-width:100%;border-radius:4px}
+`
 
 function apiUrl(path, params) {
   const base = (document.baseURI ?? window.location.href).replace(/\/$/, '')
@@ -101,37 +130,54 @@ function SearchView(props) {
 function NoteView(props) {
   const path = props.path
   const onBack = props.onBack
-  const [content, setContent] = useState('')
+  const [content, setContent] = useState(null)
+  const [error, setError] = useState('')
   useEffect(() => {
+    setContent(null)
+    setError('')
     getJson(apiUrl('/obsidian/api/read', { path })).then((j) => {
-      if (j.ok) setContent(j.value?.content ?? '(empty)')
-      else setContent(errorText(j))
+      if (j.ok) setContent(j.value?.content ?? '')
+      else setError(errorText(j))
     })
   }, [path])
-  return createElement('div', { style: { padding: 8, fontSize: 12 } },
-    createElement('button', { onClick: onBack }, '← 返回'),
-    createElement('div', { style: { marginTop: 6 } },
-      path,
-      createElement('a', { href: 'obsidian://open?vault=learnEverything&file=' + encodeURIComponent(path), style: { marginLeft: 8 } }, '在 Obsidian 打开'),
+  // Wikilinks rendered by the preview navigate inside the panel; external
+  // links keep the browser's own behavior.
+  const onPreviewClick = (event) => {
+    const link = event.target?.closest?.('[data-wikilink]')
+    if (!link) return
+    event.preventDefault()
+    const next = link.getAttribute('data-wikilink')
+    if (next) props.onOpen(next)
+  }
+  return createElement('div', { style: { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } },
+    createElement('div', { style: { padding: '8px', borderBottom: '1px solid #2c2c2c', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 } },
+      createElement('button', { onClick: onBack, style: { flexShrink: 0 } }, '← 返回'),
+      createElement('span', { title: path, style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#aaa' } }, path),
+      createElement('a', { href: 'obsidian://open?vault=learnEverything&file=' + encodeURIComponent(path), style: { flexShrink: 0, color: '#6cb6ff', fontSize: 12 } }, '在 Obsidian 打开'),
     ),
-    createElement('pre', { style: { whiteSpace: 'pre-wrap', marginTop: 6 } }, String(content).slice(0, 3000)),
+    createElement('div', { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 10px 14px' } },
+      createElement('style', null, MD_STYLE),
+      content === null
+        ? createElement('div', { style: { padding: '10px 0', color: '#888', fontSize: 12 } }, error ? null : '加载中…')
+        : createElement('div', {
+          className: 'dsh-obsidian-md',
+          onClick: onPreviewClick,
+          dangerouslySetInnerHTML: { __html: renderMarkdown(content) },
+        }),
+      createElement(ErrorBanner, { text: error }),
+    ),
   )
 }
 
 function GraphView() {
-  const [data, setData] = useState(null)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    getJson(apiUrl('/obsidian/graph')).then((j) => {
-      if (j.ok) setData(encodeURIComponent(JSON.stringify(j.value)))
-      else setError(errorText(j))
-    })
-  }, [])
-  return createElement('div', { style: { padding: 8 } },
-    createElement(ErrorBanner, { text: error }),
-    data === null
-      ? createElement('span', null, error ? '图谱不可用' : '图谱加载中…')
-      : createElement('iframe', { src: apiUrl('/obsidian/graph-page', { data }), style: { width: '100%', height: 520, border: 0, borderRadius: 6 } }),
+  // The graph page fetches /obsidian/graph itself: passing the whole graph
+  // through ?data= exceeded the host's request-line limit (HTTP 431).
+  return createElement('div', { style: { height: '100%', padding: 8, boxSizing: 'border-box' } },
+    createElement('iframe', {
+      src: apiUrl('/obsidian/graph-page'),
+      title: '知识图谱',
+      style: { width: '100%', height: '100%', minHeight: 420, border: 0, borderRadius: 6, background: '#1e1e1e' },
+    }),
   )
 }
 
@@ -145,20 +191,27 @@ function StatusView() {
       }
     })
   }, [])
-  return createElement('div', { style: { padding: 8, fontSize: 12, color: '#888' } }, '编译: ' + status)
+  return createElement('div', { style: { padding: '6px 8px', borderTop: '1px solid #2c2c2c', fontSize: 11, color: '#888', flexShrink: 0 } }, '编译: ' + status)
 }
 
 export function ObsidianPanel(props) {
   const [view, setView] = useState({ kind: 'dirs' })
   const nav = (label, kind) => createElement('button', { onClick: () => setView(kind), style: { marginRight: 6 } }, label)
-  return createElement('div', { style: { fontFamily: '-apple-system, Segoe UI, sans-serif', color: '#ddd' } },
-    createElement('div', { style: { padding: 8, borderBottom: '1px solid #333' } },
+  const openNote = (path) => setView({ kind: 'note', path })
+  // Notes and the graph own their scroll containers; lists scroll in the body.
+  const bodyStyle = view.kind === 'note' || view.kind === 'graph'
+    ? { flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex' }
+    : { flex: 1, minHeight: 0, overflowY: 'auto' }
+  return createElement('div', { style: { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, Segoe UI, sans-serif', color: '#ddd' } },
+    createElement('div', { style: { padding: 8, borderBottom: '1px solid #2c2c2c', flexShrink: 0 } },
       nav('目录', { kind: 'dirs' }), nav('搜索', { kind: 'search' }), nav('图谱', { kind: 'graph' }),
     ),
-    view.kind === 'dirs' && createElement(DirList, { onOpen: (path) => setView({ kind: 'note', path }) }),
-    view.kind === 'search' && createElement(SearchView, { onOpen: (path) => setView({ kind: 'note', path }) }),
-    view.kind === 'graph' && createElement(GraphView, null),
-    view.kind === 'note' && createElement(NoteView, { path: view.path, onBack: () => setView({ kind: 'dirs' }) }),
-    createElement(StatusView, null),
+    createElement('div', { style: bodyStyle },
+      view.kind === 'dirs' && createElement(DirList, { onOpen: openNote }),
+      view.kind === 'search' && createElement(SearchView, { onOpen: openNote }),
+      view.kind === 'graph' && createElement(GraphView),
+      view.kind === 'note' && createElement(NoteView, { path: view.path, onBack: () => setView({ kind: 'dirs' }), onOpen: openNote }),
+    ),
+    createElement(StatusView),
   )
 }

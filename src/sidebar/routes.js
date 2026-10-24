@@ -149,7 +149,8 @@ export function makeRouteHandlers(source) {
   };
 
   // Serve the static graph page (panel/graph.html) so the panel can embed it
-  // in an iframe; the page itself reads ?data= for the graph JSON.
+  // in an iframe. The page fetches /obsidian/graph itself, so the graph JSON
+  // never rides a request URL (which used to exceed the request-line limit).
   handlers.graphPage = async (req, res) => {
     try {
       const { readFile } = await import("node:fs/promises");
@@ -158,6 +159,22 @@ export function makeRouteHandlers(source) {
       res.end(html);
     } catch (err) {
       writeError(res, 500, "obsidian-graph-page", err.message);
+    }
+  };
+
+  // Self-hosted open-source graph library used by the page's relative script
+  // URL (./vis-network.min.js resolves under /obsidian/).
+  handlers.graphLib = async (req, res) => {
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const bundle = await readFile(new URL("../../panel/vis-network.min.js", import.meta.url));
+      res.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "public, max-age=86400",
+      });
+      res.end(bundle);
+    } catch (err) {
+      writeError(res, 500, "obsidian-graph-lib", err.message);
     }
   };
 
@@ -255,6 +272,7 @@ export function registerObsidianRoutes(ctx, options = {}) {
     ["/obsidian/api/read", handlers.read],
     ["/obsidian/graph", handlers.graph],
     ["/obsidian/graph-page", handlers.graphPage],
+    ["/obsidian/vis-network.min.js", handlers.graphLib],
     ["/obsidian/compile-status", handlers.compileStatus],
   ];
   for (const [path, handler] of mounts) {

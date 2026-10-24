@@ -66,7 +66,7 @@ test("graph route builds the wiki link graph", async () => {
   assert.ok(Array.isArray(v.edges));
 });
 
-test("registerObsidianRoutes fences requests and registers six routes", async () => {
+test("registerObsidianRoutes fences requests and registers seven routes", async () => {
   const registered = [];
   const ctx = {
     effect: (fn) => fn(),
@@ -79,7 +79,7 @@ test("registerObsidianRoutes fences requests and registers six routes", async ()
     apiKey: "k",
     createData: () => fakeData(),
   });
-  assert.equal(registered.length, 6);
+  assert.equal(registered.length, 7);
   // A fenced request is answered as a JSON envelope, not an empty 400.
   const route = registered[0];
   const res = fakeRes();
@@ -99,7 +99,7 @@ test("routes stay registered without a key and answer 503 instead of 404", async
     getConfig: () => ({ apiKey: "" }),
     createData: () => fakeData(),
   });
-  assert.equal(registered.length, 6);
+  assert.equal(registered.length, 7);
   const res = fakeRes();
   await registered[0].handler({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers: { host: "127.0.0.1:3082" } }, res);
   assert.equal(res.statusCode, 503);

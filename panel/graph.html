@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8">
 <title>知识图谱</title>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<!-- Self-hosted open-source graph library (vis-network, MIT): the panel
+     works without reaching a CDN. -->
+<script src="./vis-network.min.js"></script>
 <style>
   html,body{margin:0;height:100%;font-family:-apple-system,Segoe UI,sans-serif;background:#1e1e1e;color:#ddd}
   #app{display:flex;height:100%}
-  #graph{flex:1;height:100%}
-  #info{width:260px;border-left:1px solid #333;padding:10px;overflow:auto;font-size:13px}
-  #info h3{margin:0 0 8px;font-size:14px}
+  #graph{flex:1;height:100%;min-width:0}
+  #info{width:260px;border-left:1px solid #333;padding:10px;overflow:auto;font-size:13px;box-sizing:border-box}
+  #info h3{margin:0 0 8px;font-size:14px;word-break:break-word}
   #info .type{color:#888;font-size:12px}
+  #info .path{margin-top:6px;word-break:break-all;color:#bbb}
+  #status{position:absolute;left:16px;top:16px;font-size:12px;color:#aaa;background:#1e1e1e}
+  #status.error{color:#ffb4b4}
   a{color:#6cb6ff}
   button{background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 10px;margin-top:8px;cursor:pointer}
   button:hover{background:#444}
@@ -22,57 +27,110 @@
   <div id="info"><h3>知识图谱</h3><div>加载中…</div></div>
 </div>
 <script>
-  // Data comes from the parent (client-plugin) via postMessage, or from ?data=
-  // for standalone use. Shape: { nodes: [{id,label,type}], edges: [{source,target}] }
-  const params = new URLSearchParams(location.search);
-  let graphData = null;
-  const raw = params.get("data");
-  if (raw) { try { graphData = JSON.parse(decodeURIComponent(raw)); } catch (e) { graphData = null; } }
+  // The page owns its data read: the panel embeds this page without a query
+  // payload, so a large graph never exceeds the host's request-line limit.
+  // Same-origin cookies authenticate the fenced route.
+  var statusLine = document.createElement('div');
+  statusLine.id = 'status';
+  document.body.appendChild(statusLine);
+
+  function setStatus(text, error) {
+    statusLine.textContent = text || '';
+    statusLine.className = error ? 'error' : '';
+  }
 
   function colorFor(type) {
-    return { concept: "#4fc3f7", entity: "#81c784", source: "#ffb74d", other: "#aaa" }[type] || "#aaa";
+    return { concept: '#4fc3f7', entity: '#81c784', source: '#ffb74d', other: '#aaa' }[type] || '#aaa';
+  }
+
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+
+  function showInfo(node) {
+    var info = document.getElementById('info');
+    clear(info);
+    var title = document.createElement('h3');
+    title.textContent = node.label || node.id;
+    var type = document.createElement('div');
+    type.className = 'type';
+    type.textContent = '类型：' + (node.type || 'other');
+    var path = document.createElement('div');
+    path.className = 'path';
+    path.textContent = '路径：' + node.id;
+    var button = document.createElement('button');
+    button.textContent = '在 Obsidian 打开';
+    button.addEventListener('click', function () {
+      var vault = new URLSearchParams(location.search).get('vault') || 'learnEverything';
+      window.open('obsidian://open?vault=' + encodeURIComponent(vault) + '&file=' + encodeURIComponent(node.id));
+    });
+    info.appendChild(title);
+    info.appendChild(type);
+    info.appendChild(path);
+    info.appendChild(button);
+    window.parent.postMessage({ source: 'wiki-graph', type: 'node-click', id: node.id }, '*');
   }
 
   function render(data) {
-    const container = document.getElementById("graph");
-    if (!data || !Array.isArray(data.nodes)) {
-      document.getElementById("info").innerHTML = "<h3>知识图谱</h3><div>无图谱数据（wiki 为空或尚未生成）。</div>";
+    var container = document.getElementById('graph');
+    if (!data || !Array.isArray(data.nodes) || data.nodes.length === 0) {
+      setStatus('无图谱数据（wiki 为空或尚未生成）。');
+      var info = document.getElementById('info');
+      clear(info);
+      var title = document.createElement('h3');
+      title.textContent = '知识图谱';
+      var empty = document.createElement('div');
+      empty.textContent = '无图谱数据。';
+      info.appendChild(title);
+      info.appendChild(empty);
       return;
     }
-    const nodes = new vis.DataSet(data.nodes.map((n) => ({
-      id: n.id, label: n.label, group: n.type, title: n.id,
-    })));
-    const edges = new vis.DataSet((data.edges || []).map((e, i) => ({ id: i, from: e.source, to: e.target })));
-    const network = new vis.Network(container, { nodes, edges }, {
-      nodes: { shape: "dot", size: 14, font: { color: "#ddd", size: 13 } },
-      edges: { color: { color: "#555", highlight: "#6cb6ff" }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } },
-      physics: { enabled: true, solver: "forceAtlas2Based", stabilization: { iterations: 200 } },
+    if (typeof vis === 'undefined' || !vis.Network) {
+      setStatus('图谱库未能加载（panel/vis-network.min.js）。', true);
+      return;
+    }
+    setStatus(data.nodes.length + ' 个节点 · ' + (data.edges || []).length + ' 条边');
+    var nodes = new vis.DataSet(data.nodes.map(function (n) {
+      return { id: n.id, label: n.label, group: n.type, title: n.id, color: colorFor(n.type) };
+    }));
+    var edges = new vis.DataSet((data.edges || []).map(function (e, i) {
+      return { id: i, from: e.source, to: e.target };
+    }));
+    var network = new vis.Network(container, { nodes: nodes, edges: edges }, {
+      nodes: { shape: 'dot', size: 14, font: { color: '#ddd', size: 13 } },
+      edges: { color: { color: '#555', highlight: '#6cb6ff' }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } },
+      physics: { enabled: true, solver: 'forceAtlas2Based', stabilization: { iterations: 200 } },
       interaction: { hover: true },
     });
-    network.on("click", (e) => {
-      const id = e.nodes[0];
+    network.on('click', function (event) {
+      var id = event.nodes[0];
       if (!id) return;
-      const node = data.nodes.find((n) => n.id === id);
-      const info = document.getElementById("info");
-      if (node) {
-        const file = encodeURIComponent(node.id);
-        const vault = params.get("vault") || "learnEverything";
-        const uri = "obsidian://open?vault=" + vault + "&file=" + file;
-        info.innerHTML =
-          "<h3>" + (node.label || node.id) + "</h3>" +
-          "<div class=type>类型：" + node.type + "</div>" +
-          "<div>路径：" + node.id + "</div>" +
-          "<button onclick=\"window.open('" + uri + "')\">在 Obsidian 打开</button>";
-        // Tell the parent panel which node was clicked (for md preview).
-        window.parent.postMessage({ source: "wiki-graph", type: "node-click", id: node.id }, "*");
-      }
+      var node = data.nodes.find(function (n) { return n.id === id; });
+      if (node) showInfo(node);
+    });
+    // The parent panel can still push a fresher graph without reloading.
+    window.addEventListener('message', function (event) {
+      if (event.data && event.data.source === 'wiki-graph' && event.data.type === 'data') render(event.data.graph);
     });
   }
-  render(graphData);
-  // The parent client-plugin pushes fresh data here.
-  window.addEventListener("message", (e) => {
-    if (e.data && e.data.source === "wiki-graph" && e.data.type === "data") render(e.data.graph);
-  });
+
+  function load() {
+    setStatus('加载中…');
+    fetch(new URL('graph', location.href), { headers: { accept: 'application/json' }, credentials: 'same-origin' })
+      .then(function (res) {
+        return res.json().then(function (body) { return { res: res, body: body }; });
+      })
+      .then(function (answer) {
+        if (!answer.res.ok || !answer.body || answer.body.ok !== true) {
+          var message = (answer.body && answer.body.error && answer.body.error.message) || ('HTTP ' + answer.res.status);
+          throw new Error(message);
+        }
+        render(answer.body.value);
+      })
+      .catch(function (error) {
+        setStatus('图谱加载失败：' + (error && error.message ? error.message : error), true);
+      });
+  }
+
+  load();
 </script>
 </body>
 </html>
