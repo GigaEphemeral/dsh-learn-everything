@@ -45,11 +45,11 @@ function queryParams(url) {
 }
 
 // One shared Obsidian data layer: client + adapter + retriever.
-export function createObsidianData({ apiKey, baseUrl = DEFAULT_BASE_URL, compileStatusFile = null }) {
+export function createObsidianData({ apiKey, baseUrl = DEFAULT_BASE_URL, compileStatusFile = null, vaultName = "learnEverything" }) {
   const client = new ObsidianClient({ baseUrl, apiKey });
   const adapter = new ObsidianAdapter(client);
   const retriever = new SearchRetriever({ adapter });
-  return { client, adapter, retriever, compileStatusFile };
+  return { client, adapter, retriever, compileStatusFile, vaultName };
 }
 
 // A construction failure (for example a malformed base URL) is not the same
@@ -293,9 +293,10 @@ export function registerObsidianRoutes(ctx, options = {}) {
     const apiKey = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
     if (!apiKey) return null;
     const baseUrl = (typeof config.baseUrl === "string" && config.baseUrl.trim()) || DEFAULT_BASE_URL;
-    const key = apiKey + "\n" + baseUrl + "\n" + String(config.compileStatusFile ?? "");
+    const vaultName = (typeof config.vaultName === "string" && config.vaultName.trim()) || "learnEverything";
+    const key = apiKey + "\n" + baseUrl + "\n" + String(config.compileStatusFile ?? "") + "\n" + vaultName;
     if (key !== cachedKey) {
-      cachedData = createData({ apiKey, baseUrl, compileStatusFile: config.compileStatusFile ?? null });
+      cachedData = createData({ apiKey, baseUrl, compileStatusFile: config.compileStatusFile ?? null, vaultName });
       cachedKey = key;
     }
     return cachedData;

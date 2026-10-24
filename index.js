@@ -56,7 +56,8 @@ export function resolveObsidianConfig(config) {
   const baseUrl = (readConfigString(config?.baseUrl) || process.env.OBSIDIAN_BASE_URL || DEFAULT_BASE_URL).trim()
   const compileStatusFile = (process.env.OBSIDIAN_COMPILE_STATUS?.trim()
     || join(resolveStateDir(import.meta.url), 'compile-status.json'))
-  return { apiKey, baseUrl, compileStatusFile }
+  const vaultName = (readConfigString(config?.vaultName) || process.env.OBSIDIAN_VAULT_NAME || 'learnEverything').trim()
+  return { apiKey, baseUrl, compileStatusFile, vaultName }
 }
 
 export function apply(ctx, config) {
