@@ -73,13 +73,11 @@
     "lib",
     "src",
     "scripts",
-    "tests",
-    "tsconfig.json",
-    "package.json",
+    "panel",
     "README.md",
     "README-zh.md",
     "LICENSE",
-    "panel"
+    "!lib/tests"
   ],
   "devDependencies": {
     "@types/node": "^22",
