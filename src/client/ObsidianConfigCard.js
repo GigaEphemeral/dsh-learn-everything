@@ -65,6 +65,7 @@ export function ObsidianConfigCard(props) {
       const params = {}
       if (keyText) params.apiKey = keyText
       if (urlText) params.baseUrl = urlText
+      params.vaultName = vaultText
       const before = await getJson(apiUrl('/obsidian/api/test-connection', params))
       if (!before.connected) {
         const error = before.error

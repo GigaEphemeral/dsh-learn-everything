@@ -17,6 +17,7 @@ import { assessSufficiency } from "../search/evidence.js";
 import { buildGraph } from "../wiki/graph.js";
 import { readCompileStatus } from "../obsidian/compile-status.js";
 import { WIKI_DIRS } from "../wiki/karpathy-driver.js";
+import { validateVaultName } from "../obsidian/vault-registry.js";
 import { FORBIDDEN_CODE, NOT_CONFIGURED_CODE, NOT_CONFIGURED_MESSAGE, UNAUTHORIZED_CODE } from "./route-errors.js";
 
 export const DEFAULT_BASE_URL = "https://127.0.0.1:27124";
@@ -104,7 +105,7 @@ async function graphPages(adapter, dirs) {
 // Route handlers keyed by name; each (req, res) writes its JSON envelope.
 // `source` is either a data object (tests, static wiring) or a getter that
 // returns the current data layer or null when unconfigured.
-export function makeRouteHandlers(source, { getConfig, createData = createObsidianData } = {}) {
+export function makeRouteHandlers(source, { getConfig, createData = createObsidianData, vaultRegistryFile } = {}) {
   const current = dataAccessor(source);
   const requireData = (res) => {
     const data = current();
@@ -231,6 +232,26 @@ export function makeRouteHandlers(source, { getConfig, createData = createObsidi
     const apiKey = stagedKey || (typeof cfg.apiKey === "string" ? cfg.apiKey.trim() : "");
     const baseUrl = stagedUrl || (typeof cfg.baseUrl === "string" && cfg.baseUrl.trim()) || DEFAULT_BASE_URL;
     if (!apiKey) { notConfigured(res); return; }
+    // A nonexistent vault name would produce dead obsidian:// links; verify
+    // it against Obsidian's local vault registry before persisting/connecting.
+    const stagedVault = (params.get("vaultName") ?? "").trim();
+    const vaultName = stagedVault || (typeof cfg.vaultName === "string" ? cfg.vaultName.trim() : "") || "learnEverything";
+    const vaultCheck = await validateVaultName(vaultName, { registryFile: vaultRegistryFile });
+    if (!vaultCheck.ok) {
+      const available = vaultCheck.available ?? [];
+      writeJson(res, 200, {
+        ok: true,
+        value: {
+          connected: false,
+          error: {
+            code: "unknown-vault",
+            message: `Unknown Obsidian vault "${vaultName}". Available: ${available.length ? available.join(", ") : "none"}.`,
+            available,
+          },
+        },
+      });
+      return;
+    }
     let adapter;
     try {
       adapter = (stagedKey || stagedUrl)
@@ -250,7 +271,7 @@ export function makeRouteHandlers(source, { getConfig, createData = createObsidi
       const root = await adapter.list("");
       const latency = Date.now() - started;
       const connected = Array.isArray(root?.files);
-      writeJson(res, 200, { ok: true, value: { connected, latency } });
+      writeJson(res, 200, { ok: true, value: { connected, latency, vaultVerified: vaultCheck.verified } });
     } catch (err) {
       const latency = Date.now() - started;
       const code = err instanceof ObsidianError && err.status === 401 ? "unauthorized" : err instanceof ObsidianError ? "obsidian-error" : "network-error";

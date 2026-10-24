@@ -1,0 +1,6 @@
+{
+  "vaults": {
+    "fixture-open": { "path": "/home/user/myWiki/learnEverything", "open": true },
+    "fixture-other": { "path": "/home/user/myWiki/other" }
+  }
+}

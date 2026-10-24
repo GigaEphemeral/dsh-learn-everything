@@ -8,6 +8,9 @@ import { appendCompileEvent } from "../src/obsidian/compile-status.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const VAULT_REGISTRY = fileURLToPath(new URL("./fixtures/obsidian-vaults.json", import.meta.url));
 
 function fakeReq(url) {
   return { url, method: "GET", headers: {}, [Symbol.asyncIterator]: async function* () {} };
@@ -258,7 +261,7 @@ test("config route returns non-secret values and hides the apiKey", async () => 
 });
 
 test("test-connection proves authentication through an authenticated vault read", async () => {
-  const h = makeRouteHandlers(fakeData(), { getConfig: () => ({ apiKey: "k", baseUrl: "https://h" }) });
+  const h = makeRouteHandlers(fakeData(), { vaultRegistryFile: VAULT_REGISTRY, getConfig: () => ({ apiKey: "k", baseUrl: "https://h" }) });
   const res = fakeRes();
   await h.testConnection(fakeReq("/obsidian/api/test-connection"), res);
   assert.equal(res.statusCode, 200);
@@ -271,7 +274,7 @@ test("an unauthenticated health 200 cannot mask a 401 on the authenticated probe
   const data = fakeData();
   data.adapter.health = async () => ({ status: "OK" });
   data.adapter.list = async () => { throw new ObsidianError("401 Unauthorized", { status: 401 }); };
-  const h = makeRouteHandlers(data, { getConfig: () => ({ apiKey: "wrong", baseUrl: "https://h" }) });
+  const h = makeRouteHandlers(data, { vaultRegistryFile: VAULT_REGISTRY, getConfig: () => ({ apiKey: "wrong", baseUrl: "https://h" }) });
   const res = fakeRes();
   await h.testConnection(fakeReq("/obsidian/api/test-connection"), res);
   assert.equal(res.statusCode, 200);
@@ -283,7 +286,7 @@ test("an unauthenticated health 200 cannot mask a 401 on the authenticated probe
 test("test-connection route reports failure with an error code", async () => {
   const data = fakeData();
   data.adapter.list = async () => { throw new Error("ECONNREFUSED 127.0.0.1:27124") };
-  const h = makeRouteHandlers(data, { getConfig: () => ({ apiKey: "k", baseUrl: "https://h" }) });
+  const h = makeRouteHandlers(data, { vaultRegistryFile: VAULT_REGISTRY, getConfig: () => ({ apiKey: "k", baseUrl: "https://h" }) });
   const res = fakeRes();
   await h.testConnection(fakeReq("/obsidian/api/test-connection"), res);
   assert.equal(res.statusCode, 200);
@@ -294,6 +297,7 @@ test("test-connection route reports failure with an error code", async () => {
 
 test("test-connection refuses a wrong staged key (save-time validation)", async () => {
   const h = makeRouteHandlers(null, {
+    vaultRegistryFile: VAULT_REGISTRY,
     getConfig: () => ({ apiKey: "configured-key", baseUrl: "https://h" }),
     createData: () => ({ adapter: { list: async () => { throw new ObsidianError("401 Unauthorized", { status: 401 }); } } }),
   });
@@ -308,6 +312,7 @@ test("test-connection refuses a wrong staged key (save-time validation)", async 
 test("test-connection uses a throwaway client for a staged URL", async () => {
   let built = null;
   const h = makeRouteHandlers(null, {
+    vaultRegistryFile: VAULT_REGISTRY,
     getConfig: () => ({ apiKey: "configured-key", baseUrl: "https://h" }),
     createData: (opts) => { built = opts; return { adapter: { list: async () => ({ files: [] }) } } },
   });
@@ -321,6 +326,7 @@ test("test-connection uses a throwaway client for a staged URL", async () => {
 
 test("test-connection reports a malformed staged URL as invalid config", async () => {
   const h = makeRouteHandlers(null, {
+    vaultRegistryFile: VAULT_REGISTRY,
     getConfig: () => ({ apiKey: "configured-key", baseUrl: "https://h" }),
     createData: () => { throw new Error("Invalid URL"); },
   });
@@ -330,4 +336,21 @@ test("test-connection reports a malformed staged URL as invalid config", async (
   const v = JSON.parse(res.body).value;
   assert.equal(v.connected, false);
   assert.equal(v.error.code, "invalid-config");
+});
+
+test("test-connection rejects an unregistered vault name even with a valid key", async () => {
+  let built = false;
+  const h = makeRouteHandlers(null, {
+    vaultRegistryFile: VAULT_REGISTRY,
+    getConfig: () => ({ apiKey: "configured-key", baseUrl: "https://h", vaultName: "learnEverything" }),
+    createData: () => { built = true; return { adapter: { list: async () => ({ files: [] }) } }; },
+  });
+  const res = fakeRes();
+  await h.testConnection(fakeReq("/obsidian/api/test-connection?vaultName=not-a-vault"), res);
+  assert.equal(res.statusCode, 200);
+  const v = JSON.parse(res.body).value;
+  assert.equal(v.connected, false);
+  assert.equal(v.error.code, "unknown-vault");
+  assert.ok(v.error.available.includes("learnEverything"));
+  assert.equal(built, false, "an unknown vault is rejected before any network probe");
 });
