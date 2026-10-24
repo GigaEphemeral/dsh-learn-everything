@@ -211,11 +211,15 @@ export function makeRouteHandlers(source, { getConfig } = {}) {
   // Public (fenced) read of non-secret panel config: the vault name the
   // client needs for obsidian:// deep links. The apiKey is never exposed.
   handlers.config = async (req, res) => {
-    writeJson(res, 200, { ok: true, value: { vaultName: data.vaultName } });
+    const config = typeof getConfig === "function" ? (getConfig() ?? {}) : {};
+    const vaultName = (typeof config.vaultName === "string" && config.vaultName.trim()) || "learnEverything";
+    writeJson(res, 200, { ok: true, value: { vaultName } });
   };
 
   // Test whether the configured URL + API key can reach Obsidian.
   handlers.testConnection = async (req, res) => {
+    const data = requireData(res);
+    if (!data) return;
     const started = Date.now();
     try {
       const health = await data.adapter.health();

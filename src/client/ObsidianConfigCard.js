@@ -34,5 +34,17 @@ export function ObsidianConfigCard(props) {
       onEdit: (text) => { props.edit('baseUrl', text) },
       onReset: () => { props.resetField('baseUrl') },
     }),
+    createElement(SettingsValueField, {
+      id: 'plugin-config-obsidian-vault-name',
+      label: t('vaultName'),
+      hint: t('vaultNameHint'),
+      overriddenLabel: t('overridden'),
+      resetLabel: t('reset'),
+      invalidLabel: t('invalid'),
+      disabled,
+      ...state.vaultName,
+      onEdit: (text) => { props.edit('vaultName', text) },
+      onReset: () => { props.resetField('vaultName') },
+    }),
   )
 }

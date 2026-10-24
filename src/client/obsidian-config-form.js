@@ -38,11 +38,12 @@ function secretConfigured(ctx) {
  */
 export function createObsidianConfigForm(ctx) {
   const scope = ctx.configForms.get(SETTINGS_NAMESPACE)
-  const form = new SettingsFormModel(scope, [settingsTextField('baseUrl'), apiKeyField])
+  const form = new SettingsFormModel(scope, [settingsTextField('baseUrl'), settingsTextField('vaultName'), apiKeyField])
   const state = form.bind(() => ({
     ...form.shell(),
     apiKey: form.field('apiKey'),
     baseUrl: form.field('baseUrl'),
+    vaultName: form.field('vaultName'),
     apiKeyConfigured: secretConfigured(ctx),
   }))
   return {
