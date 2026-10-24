@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { BUNDLE_NAME, SETTINGS_NAMESPACE, registerBundleConfigPage } from '../src/client/config-page.js'
+import { BUNDLE_NAME, SETTINGS_NAMESPACE, registerBundleConfigPage, missingRequiredConfig } from '../src/client/config-page.js'
 
 test('bundle config registration uses the package key the Plugins page dispatches', () => {
   let registered
@@ -43,3 +43,9 @@ test('built client bundle carries the bundle config registration', async () => {
   assert.match(source, /plugins\.bundle\.config/)
   assert.match(source, /dsh-learn-everything/)
 })
+
+test("all three first-time values are required; a stored key may stay blank", () => {
+  assert.deepEqual(missingRequiredConfig({ apiKeyConfigured: false, apiKeyText: "", baseUrlText: "", vaultNameText: "" }), ["apiKey", "baseUrl", "vaultName"]);
+  assert.deepEqual(missingRequiredConfig({ apiKeyConfigured: true, apiKeyText: "", baseUrlText: "https://h", vaultNameText: "v" }), []);
+  assert.deepEqual(missingRequiredConfig({ apiKeyConfigured: false, apiKeyText: "  ", baseUrlText: " ", vaultNameText: "v" }), ["apiKey", "baseUrl"]);
+});

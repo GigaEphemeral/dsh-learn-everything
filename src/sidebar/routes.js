@@ -213,35 +213,37 @@ export function makeRouteHandlers(source, { getConfig, createData = createObsidi
   handlers.config = async (req, res) => {
     const config = typeof getConfig === "function" ? (getConfig() ?? {}) : {};
     const vaultName = (typeof config.vaultName === "string" && config.vaultName.trim()) || "learnEverything";
-    writeJson(res, 200, { ok: true, value: { vaultName } });
+    const baseUrl = (typeof config.baseUrl === "string" && config.baseUrl.trim()) || DEFAULT_BASE_URL;
+    // Non-secret values are readable so the card can verify a save landed;
+    // the key is reported only as configured/unconfigured.
+    writeJson(res, 200, { ok: true, value: { vaultName, baseUrl, apiKeyConfigured: Boolean(config.apiKey) } });
   };
 
   // Test whether the configured URL + API key can reach Obsidian.
   handlers.testConnection = async (req, res) => {
-    const data = requireData(res);
     const params = queryParams(req.url);
     const stagedKey = (params.get("apiKey") ?? "").trim();
     const stagedUrl = (params.get("baseUrl") ?? "").trim();
-    // The client may send staged (not-yet-saved) values so a wrong key is
-    // rejected BEFORE it is persisted: build a throwaway client for them.
-    let adapter = data?.adapter ?? null;
-    if (stagedKey || stagedUrl) {
-      const cfg = typeof getConfig === "function" ? (getConfig() ?? {}) : {};
-      const apiKey = stagedKey || (typeof cfg.apiKey === "string" ? cfg.apiKey.trim() : "");
-      const baseUrl = stagedUrl || DEFAULT_BASE_URL;
-      // Throwaway data layer for the staged values: nothing is persisted here.
-      adapter = createData({ apiKey, baseUrl, vaultName: cfg.vaultName }).adapter;
-    }
+    const cfg = typeof getConfig === "function" ? (getConfig() ?? {}) : {};
+    // The client sends staged (not-yet-saved) values so a wrong key is
+    // rejected BEFORE it is persisted. An empty stage falls back to saved
+    // values, which is how the card verifies a save actually took effect.
+    const apiKey = stagedKey || (typeof cfg.apiKey === "string" ? cfg.apiKey.trim() : "");
+    const baseUrl = stagedUrl || (typeof cfg.baseUrl === "string" && cfg.baseUrl.trim()) || DEFAULT_BASE_URL;
+    if (!apiKey) { notConfigured(res); return; }
+    const adapter = (stagedKey || stagedUrl)
+      ? createData({ apiKey, baseUrl, vaultName: cfg.vaultName }).adapter
+      : current()?.adapter;
     if (!adapter) { notConfigured(res); return; }
     const started = Date.now();
     try {
-      const health = await adapter.health();
+      // GET / is deliberately unauthenticated in local-rest-api v5.5.2 (it
+      // answers 200 even for a wrong key), so the probe must be an
+      // authenticated vault read: a bad key throws 401 here.
+      const root = await adapter.list("");
       const latency = Date.now() - started;
-      // local-rest-api v5.5.2 answers GET / with { status: "OK", manifest } (no
-      // authenticated/ok); the request resolving already proves the key is
-      // accepted (a 401 would throw), so any of the three shapes counts.
-      const connected = health?.status === "OK" || health?.ok === true || health?.authenticated === true;
-      writeJson(res, 200, { ok: true, value: { connected, latency, health } });
+      const connected = Array.isArray(root?.files);
+      writeJson(res, 200, { ok: true, value: { connected, latency } });
     } catch (err) {
       const latency = Date.now() - started;
       const code = err instanceof ObsidianError && err.status === 401 ? "unauthorized" : err instanceof ObsidianError ? "obsidian-error" : "network-error";

@@ -223,9 +223,12 @@ test("package.json keeps the CLIs publishable and the default test run local-onl
   const pkg = JSON.parse(readFileSync(join(CODE_DIR, "package.json"), "utf8"));
   assert.equal(pkg.engines.node, ">=22.6");
   assert.match(pkg.devDependencies["@types/node"], /^\^22(\.|$)/);
-  for (const entry of ["lib", "tsconfig.json"]) {
-    assert.ok(pkg.files.includes(entry), `files must include ${entry} for the CLIs to run after install`);
+  // The packed tarball is runtime-only: lib/ and panel/ ship, compiler
+  // configuration and tests do not.
+  for (const entry of ["lib", "panel"]) {
+    assert.ok(pkg.files.includes(entry), `files must include ${entry} for the CLIs and panel to run after install`);
   }
+  assert.equal(pkg.files.includes("tsconfig.json"), false);
   assert.equal(pkg.scripts.prepack, "npm run build && npm run build:client", "packing must build lib/ and the client bundle first");
   assert.ok(pkg.files.includes("panel"), "the graph page and its vendored library must ship");
   assert.equal(pkg.exports["./cordis.patch.yml"], "./cordis.patch.yml", "the bundle patch must stay exported");

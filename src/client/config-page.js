@@ -34,3 +34,17 @@ export function registerBundleConfigPage(ctx, page) {
     inject: page.inject,
   }, page.component))
 }
+
+/**
+ * Required values for a first-time configuration: API key, address, and vault.
+ * An already-configured key may stay blank (blank means "keep the stored key").
+ * @param values - drafts plus whether the Host already stores a key.
+ * @returns the missing field ids, in form order.
+ */
+export function missingRequiredConfig(values) {
+  const missing = []
+  if (!values.apiKeyConfigured && !String(values.apiKeyText ?? '').trim()) missing.push('apiKey')
+  if (!String(values.baseUrlText ?? '').trim()) missing.push('baseUrl')
+  if (!String(values.vaultNameText ?? '').trim()) missing.push('vaultName')
+  return missing
+}

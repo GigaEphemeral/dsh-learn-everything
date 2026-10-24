@@ -46,9 +46,13 @@ export function createObsidianConfigForm(ctx) {
     vaultName: form.field('vaultName'),
     apiKeyConfigured: secretConfigured(ctx),
   }))
+  const actions = form.actions()
   return {
     hooks: { obsidianConfigForm: state },
-    ...form.actions(),
+    ...actions,
+    // The card awaits this to verify the Host actually accepted the write;
+    // SettingsFormModel resolves after the document round-trip.
+    save: () => form.save().then(() => !form.shell().failed),
     dispose: () => { form.dispose() },
   }
 }
