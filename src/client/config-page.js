@@ -48,3 +48,13 @@ export function missingRequiredConfig(values) {
   if (!String(values.vaultNameText ?? '').trim()) missing.push('vaultName')
   return missing
 }
+
+/** Whether a required API address is a usable HTTP(S) URL. */
+export function isHttpUrl(value) {
+  try {
+    const url = new URL(String(value ?? '').trim())
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}

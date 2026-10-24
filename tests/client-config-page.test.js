@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { BUNDLE_NAME, SETTINGS_NAMESPACE, registerBundleConfigPage, missingRequiredConfig } from '../src/client/config-page.js'
+import { BUNDLE_NAME, SETTINGS_NAMESPACE, registerBundleConfigPage, missingRequiredConfig, isHttpUrl } from '../src/client/config-page.js'
 
 test('bundle config registration uses the package key the Plugins page dispatches', () => {
   let registered
@@ -48,4 +48,12 @@ test("all three first-time values are required; a stored key may stay blank", ()
   assert.deepEqual(missingRequiredConfig({ apiKeyConfigured: false, apiKeyText: "", baseUrlText: "", vaultNameText: "" }), ["apiKey", "baseUrl", "vaultName"]);
   assert.deepEqual(missingRequiredConfig({ apiKeyConfigured: true, apiKeyText: "", baseUrlText: "https://h", vaultNameText: "v" }), []);
   assert.deepEqual(missingRequiredConfig({ apiKeyConfigured: false, apiKeyText: "  ", baseUrlText: " ", vaultNameText: "v" }), ["apiKey", "baseUrl"]);
+});
+
+test("the API address must be a valid http(s) URL", () => {
+  assert.equal(isHttpUrl("https://127.0.0.1:27124"), true);
+  assert.equal(isHttpUrl("http://localhost:27123/"), true);
+  assert.equal(isHttpUrl(""), false);
+  assert.equal(isHttpUrl("127.0.0.1:27124"), false);
+  assert.equal(isHttpUrl("ftp://host"), false);
 });

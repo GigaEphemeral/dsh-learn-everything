@@ -7,7 +7,7 @@
 import { createElement, useState } from 'react'
 import { SettingsForm, SettingsSecretField, SettingsValueField } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formLabels } from './config-locales.js'
-import { missingRequiredConfig } from './config-page.js'
+import { isHttpUrl, missingRequiredConfig } from './config-page.js'
 
 function apiUrl(path, params) {
   // Panel routes are absolute; document.baseURI appends session routes/tokens.
@@ -54,6 +54,10 @@ export function ObsidianConfigCard(props) {
     setTestError(null)
     if (missing.length > 0) {
       setTestError(t('requiredFields') + ' ' + missing.join('、'))
+      return
+    }
+    if (!isHttpUrl(urlText)) {
+      setTestError(t('invalidBaseUrl'))
       return
     }
     setTesting(true)

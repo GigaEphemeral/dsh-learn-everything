@@ -318,3 +318,16 @@ test("test-connection uses a throwaway client for a staged URL", async () => {
   assert.equal(built.apiKey, "configured-key");
   assert.equal(JSON.parse(res.body).value.connected, true);
 });
+
+test("test-connection reports a malformed staged URL as invalid config", async () => {
+  const h = makeRouteHandlers(null, {
+    getConfig: () => ({ apiKey: "configured-key", baseUrl: "https://h" }),
+    createData: () => { throw new Error("Invalid URL"); },
+  });
+  const res = fakeRes();
+  await h.testConnection(fakeReq("/obsidian/api/test-connection?baseUrl=not-a-url"), res);
+  assert.equal(res.statusCode, 200);
+  const v = JSON.parse(res.body).value;
+  assert.equal(v.connected, false);
+  assert.equal(v.error.code, "invalid-config");
+});

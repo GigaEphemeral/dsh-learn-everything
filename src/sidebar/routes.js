@@ -231,9 +231,16 @@ export function makeRouteHandlers(source, { getConfig, createData = createObsidi
     const apiKey = stagedKey || (typeof cfg.apiKey === "string" ? cfg.apiKey.trim() : "");
     const baseUrl = stagedUrl || (typeof cfg.baseUrl === "string" && cfg.baseUrl.trim()) || DEFAULT_BASE_URL;
     if (!apiKey) { notConfigured(res); return; }
-    const adapter = (stagedKey || stagedUrl)
-      ? createData({ apiKey, baseUrl, vaultName: cfg.vaultName }).adapter
-      : current()?.adapter;
+    let adapter;
+    try {
+      adapter = (stagedKey || stagedUrl)
+        ? createData({ apiKey, baseUrl, vaultName: cfg.vaultName }).adapter
+        : current()?.adapter;
+    } catch (err) {
+      // A malformed staged URL is a configuration error, not a route failure.
+      writeJson(res, 200, { ok: true, value: { connected: false, error: { code: "invalid-config", message: err.message } } });
+      return;
+    }
     if (!adapter) { notConfigured(res); return; }
     const started = Date.now();
     try {
