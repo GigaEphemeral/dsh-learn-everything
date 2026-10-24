@@ -224,8 +224,11 @@ export function makeRouteHandlers(source, { getConfig } = {}) {
     try {
       const health = await data.adapter.health();
       const latency = Date.now() - started;
-      const authenticated = Boolean(health?.authenticated ?? health?.ok);
-      writeJson(res, 200, { ok: true, value: { connected: authenticated, latency, health } });
+      // local-rest-api v5.5.2 answers GET / with { status: "OK", manifest } (no
+      // authenticated/ok); the request resolving already proves the key is
+      // accepted (a 401 would throw), so any of the three shapes counts.
+      const connected = health?.status === "OK" || health?.ok === true || health?.authenticated === true;
+      writeJson(res, 200, { ok: true, value: { connected, latency, health } });
     } catch (err) {
       const latency = Date.now() - started;
       const code = err instanceof ObsidianError && err.status === 401 ? "unauthorized" : err instanceof ObsidianError ? "obsidian-error" : "network-error";
