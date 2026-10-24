@@ -10,6 +10,12 @@ import { renderMarkdown } from '../markdown/render.js'
 
 const DIRS = ['wiki/concepts', 'wiki/entities', 'wiki/sources', 'Sources']
 
+// Vault name for obsidian:// deep links, read from /obsidian/api/config (default learnEverything).
+let vaultName = 'learnEverything'
+function openInObsidian(path) {
+  return 'obsidian://open?vault=' + encodeURIComponent(vaultName) + '&file=' + encodeURIComponent(path)
+}
+
 // Preview typography. The panel runs inside the host page, so the rules are
 // scoped to the preview class instead of restyling the page.
 const MD_STYLE = `
@@ -166,7 +172,7 @@ function NoteView(props) {
     createElement('div', { style: { padding: '8px', borderBottom: '1px solid #2c2c2c', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 } },
       createElement('button', { onClick: onBack, style: { flexShrink: 0 } }, '← 返回'),
       createElement('span', { title: path, style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#aaa' } }, path),
-      createElement('a', { href: 'obsidian://open?vault=learnEverything&file=' + encodeURIComponent(path), style: { flexShrink: 0, color: '#6cb6ff', fontSize: 12 } }, '在 Obsidian 打开'),
+      createElement('a', { href: openInObsidian(path), style: { flexShrink: 0, color: '#6cb6ff', fontSize: 12 } }, '在 Obsidian 打开'),
     ),
     createElement('div', { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 10px 14px' } },
       createElement('style', null, MD_STYLE),
@@ -191,6 +197,25 @@ function GraphView() {
       title: '知识图谱',
       style: { width: '100%', height: '100%', minHeight: 420, border: 0, borderRadius: 6, background: '#1e1e1e' },
     }),
+  )
+}
+
+function TestConnection() {
+  const [state, setState] = useState({ busy: false, result: null })
+  const test = () => {
+    setState({ busy: true, result: null })
+    getJson(apiUrl('/obsidian/api/test-connection')).then((j) => {
+      if (j.ok && j.value?.connected) {
+        setState({ busy: false, result: { ok: true, text: '已连通 (' + j.value.latency + ' ms)' } })
+      } else {
+        const e = j.value?.error
+        setState({ busy: false, result: { ok: false, text: '连接失败: ' + (e?.code ?? 'unknown') + ' ' + (e?.message ?? '') } })
+      }
+    }).catch(() => setState({ busy: false, result: { ok: false, text: '连接失败: 请求错误' } }))
+  }
+  return createElement('div', { style: { padding: 8, fontSize: 12, borderTop: '1px solid #2c2c2c' } },
+    createElement('button', { onClick: test, disabled: state.busy, style: { marginRight: 6 } }, state.busy ? '测试中…' : '测试连接'),
+    state.result && createElement('span', { style: { color: state.result.ok ? '#4caf50' : '#ff6b6b' } }, state.result.text),
   )
 }
 
@@ -219,6 +244,11 @@ function StatusView() {
 
 export function ObsidianPanel(props) {
   const [view, setView] = useState({ kind: 'dirs' })
+  useEffect(() => {
+    getJson(apiUrl('/obsidian/api/config')).then((j) => {
+      if (j.ok && j.value?.vaultName) vaultName = j.value.vaultName
+    })
+  }, [])
   const nav = (label, kind) => createElement('button', { onClick: () => setView(kind), style: { marginRight: 6 } }, label)
   const openNote = (path) => setView({ kind: 'note', path })
   // Notes and the graph own their scroll containers; lists scroll in the body.

@@ -76,7 +76,7 @@ node scripts/search-cli.mjs "什么是间隔重复"
 | `Inbox/` | 待处理材料 | 用户 | 空 |
 | `wiki/` | karpathywiki **派生**知识网：`concepts/ entities/ sources/` + `index.md log.md schema/config.md` | 插件自动生成 | 可重建；不得视为原始知识 |
 
-边界：`Sources/`+`Learning/MOC`＝正式知识；`wiki/`＝派生可重建；**学习状态（Plans/Questions/Reviews：题目/作答/评分/复习调度/掌握度）存 SQLite（决策 B），绝不写入 Vault 笔记**。
+边界：`Sources/`＝正式知识（摄入原文）；`wiki/`＝派生可重建；**学习状态（Plans/Questions/Reviews：题目/作答/评分/复习调度/掌握度）存 SQLite（决策 B），绝不写入 Vault 笔记**。
 
 ### 摄入流程（原文去向）
 ```
@@ -95,6 +95,30 @@ URL（仅 https）或本地 .md
 ### 当前 Vault 状态（2026-10-23）
 - `Sources/dsh-plugin-dev-patterns.md` 及对应 `wiki/` 页（1 source + concepts + entities）
 - 遗留杂项待清理确认：根目录 `concepts/间隔重复.md`（游离）、`_p1-test/`（P1 临时）、`未命名.base`（Obsidian 文件）
+
+
+## 构建 / 打包 / 部署
+
+```bash
+npm ci --ignore-scripts          # 安装依赖（本机 npm cache 只读时：npm_config_cache=/tmp/npm-cache npm ci）
+npm run build                    # tsc：src/db + src/learning -> lib/
+npm run build:client             # esbuild：右侧栏面板 bundle -> lib/client.js
+npm test                         # 274 测试，0 跳过
+```
+
+### 部署到 test profile（:3081）
+test profile 里的插件是**目录副本**（非 symlink）：改动 code/ 后同步并重启：
+```bash
+rsync -a --delete --exclude node_modules --exclude .git --exclude .state --exclude .env \
+  . ~/.dsh/profiles/test/node_modules/dsh-learn-everything/
+cd ~/sourceCodeDSH/deepseek-harness && OBSIDIAN_API_KEY=<key> dsh --profile test --port 3081
+```
+
+### Obsidian 访问配置（S4 右侧栏面板）
+- **plugins 页面**：DSH -> 插件 -> dsh-learn-everything -> apiKey（secret）+ baseUrl；保存即生效（volatile 配置，无需重启）。
+- **环境变量兜底**：OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL（默认 https://127.0.0.1:27124）。
+- 优先级：插件配置 -> 环境变量 -> 默认；未配置时接口返回 503 obsidian-not-configured（而非 404）。
+- 面板 = 客户端 half（src/client/index.js）在 DSH 原生右侧栏注册 Obsidian tab，数据经围栏路由（src/sidebar/routes.js）代理 Obsidian REST；API key 不进入浏览器。
 
 ## 自测
 ```bash

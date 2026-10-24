@@ -79,7 +79,7 @@ The formal vault is `learnEverything`. Knowledge is split by ownership so DSH wr
 | `Inbox/` | Pending materials | User | empty |
 | `wiki/` | KarpathyWiki **derived** network: `concepts/ entities/ sources/` + `index.md log.md schema/config.md` | Plugin auto-generates | rebuildable; never treat as original knowledge |
 
-Boundaries: `Sources/` + `Learning/MOC` = formal knowledge. `wiki/` = derived, rebuildable. **Learning state — Plans/Questions/Reviews (题目/作答/评分/复习调度/掌握度) — lives in SQLite (decision B), never written into vault notes.**
+Boundaries: `Sources/` = formal knowledge (ingested originals). `wiki/` = derived, rebuildable. **Learning state — Plans/Questions/Reviews (题目/作答/评分/复习调度/掌握度) — lives in SQLite (decision B), never written into vault notes.**
 
 ### Ingest flow (where the original goes)
 ```
@@ -98,6 +98,30 @@ URL (https-only) or local .md
 ### Current vault state (2026-10-23)
 - `Sources/dsh-plugin-dev-patterns.md` + `wiki/` pages for it (1 source page, concepts, entities)
 - Leftover artifacts pending cleanup: root `concepts/间隔重复.md` (stray), `_p1-test/` (P1 scratch), `未命名.base` (Obsidian file) — confirm before deleting.
+
+
+## Build / package / deploy
+
+```bash
+npm ci --ignore-scripts          # install (locked); use npm_config_cache=/tmp/npm-cache if the local npm cache is read-only
+npm run build                    # tsc: src/db + src/learning -> lib/
+npm run build:client             # esbuild: the right-sidebar panel bundle -> lib/client.js
+npm test                         # 274 tests, 0 skipped
+```
+
+### Deploy to the test profile (:3081)
+The test profile holds the plugin as a **directory copy** (not a symlink): after changing code/, sync and restart:
+```bash
+rsync -a --delete --exclude node_modules --exclude .git --exclude .state --exclude .env \
+  . ~/.dsh/profiles/test/node_modules/dsh-learn-everything/
+cd ~/sourceCodeDSH/deepseek-harness && OBSIDIAN_API_KEY=<key> dsh --profile test --port 3081
+```
+
+### Obsidian access config (S4 right-sidebar panel)
+- **Plugins page**: DSH -> plugins -> dsh-learn-everything -> apiKey (secret) + baseUrl; saving applies without a restart (volatile config).
+- **Env fallback**: OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL (default https://127.0.0.1:27124).
+- Precedence: plugin config -> env -> default; unconfigured routes answer 503 obsidian-not-configured instead of 404.
+- The panel is a client half (src/client/index.js) registering an Obsidian tab into DSH's native right sidebar, backed by fenced routes (src/sidebar/routes.js) that proxy the Obsidian REST API; the API key never reaches the browser.
 
 ## Self-test
 ```bash

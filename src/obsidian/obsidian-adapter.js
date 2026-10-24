@@ -24,6 +24,11 @@ export class ObsidianAdapter {
     return rel;
   }
 
+  // Health check: the local-rest-api serves `{ authenticated, ok }` at /.
+  async health() {
+    return this.client.request("GET", "/");
+  }
+
   async list(dir = "") {
     // The vault root is addressed without a path segment.
     if (dir === "") return this.client.request("GET", "/vault/");

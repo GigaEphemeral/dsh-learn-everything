@@ -208,6 +208,27 @@ export function makeRouteHandlers(source, { getConfig } = {}) {
     }
   };
 
+  // Public (fenced) read of non-secret panel config: the vault name the
+  // client needs for obsidian:// deep links. The apiKey is never exposed.
+  handlers.config = async (req, res) => {
+    writeJson(res, 200, { ok: true, value: { vaultName: data.vaultName } });
+  };
+
+  // Test whether the configured URL + API key can reach Obsidian.
+  handlers.testConnection = async (req, res) => {
+    const started = Date.now();
+    try {
+      const health = await data.adapter.health();
+      const latency = Date.now() - started;
+      const authenticated = Boolean(health?.authenticated ?? health?.ok);
+      writeJson(res, 200, { ok: true, value: { connected: authenticated, latency, health } });
+    } catch (err) {
+      const latency = Date.now() - started;
+      const code = err instanceof ObsidianError && err.status === 401 ? "unauthorized" : err instanceof ObsidianError ? "obsidian-error" : "network-error";
+      writeJson(res, 200, { ok: true, value: { connected: false, latency, error: { code, message: err.message } } });
+    }
+  };
+
   handlers.compileStatus = async (req, res) => {
     try {
       // Never take a filesystem path from the request: only the configured
@@ -308,6 +329,8 @@ export function registerObsidianRoutes(ctx, options = {}) {
     ["/obsidian/api/list", handlers.list],
     ["/obsidian/api/search", handlers.search],
     ["/obsidian/api/read", handlers.read],
+    ["/obsidian/api/config", handlers.config],
+    ["/obsidian/api/test-connection", handlers.testConnection],
     ["/obsidian/graph", handlers.graph],
     ["/obsidian/graph-page", handlers.graphPage],
     ["/obsidian/vis-network.min.js", handlers.graphLib],
