@@ -9,6 +9,8 @@ test('plugin Config fields are volatile so SettingsForms can project them', () =
   // volatileForm() returns undefined (and the form disappears) without this.
   assert.equal(Config.dict.apiKey.meta.volatile, true);
   assert.equal(Config.dict.baseUrl.meta.volatile, true);
+  assert.equal(Config.dict.vaultName.meta.volatile, true);
+  assert.equal(Config.dict.vaultName.meta.default, 'learnEverything');
   // The API key must be redacted in remote settings.
   assert.equal(Config.dict.apiKey.meta.role, 'secret');
 });
@@ -17,8 +19,10 @@ test('parsed volatile fields are references read through get()', () => {
   const parsed = Config({});
   assert.equal(typeof parsed.apiKey.get, 'function');
   assert.equal(typeof parsed.baseUrl.get, 'function');
+  assert.equal(typeof parsed.vaultName.get, 'function');
   assert.equal(parsed.apiKey.get(), '');
   assert.equal(parsed.baseUrl.get(), '');
+  assert.equal(parsed.vaultName.get(), 'learnEverything');
 });
 
 test('readConfigString accepts plain strings and Volatile references', () => {
@@ -31,12 +35,15 @@ test('readConfigString accepts plain strings and Volatile references', () => {
 test('resolveObsidianConfig prefers plugin config over the environment', () => {
   const prevKey = process.env.OBSIDIAN_API_KEY;
   const prevUrl = process.env.OBSIDIAN_BASE_URL;
+  const prevVault = process.env.OBSIDIAN_VAULT_NAME;
   process.env.OBSIDIAN_API_KEY = 'env-key';
   process.env.OBSIDIAN_BASE_URL = 'https://env.example';
+  process.env.OBSIDIAN_VAULT_NAME = 'env-vault';
   try {
-    const configured = resolveObsidianConfig({ apiKey: 'cfg-key', baseUrl: 'https://cfg.example' });
+    const configured = resolveObsidianConfig({ apiKey: 'cfg-key', baseUrl: 'https://cfg.example', vaultName: 'cfg-vault' });
     assert.equal(configured.apiKey, 'cfg-key');
     assert.equal(configured.baseUrl, 'https://cfg.example');
+    assert.equal(configured.vaultName, 'cfg-vault');
     assert.ok(configured.compileStatusFile.endsWith('compile-status.json'));
     // An empty configured value falls back to the environment, then the default.
     const fromEnv = resolveObsidianConfig({ apiKey: '', baseUrl: '' });

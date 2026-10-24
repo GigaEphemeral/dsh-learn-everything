@@ -34,6 +34,8 @@ export const Config = z.object({
     .description('Obsidian Local REST API key. Leave empty to use OBSIDIAN_API_KEY.'),
   baseUrl: z.string().default('').volatile()
     .description('Obsidian Local REST API base URL. Leave empty to use OBSIDIAN_BASE_URL or the default.'),
+  vaultName: z.string().default('learnEverything').volatile()
+    .description('Obsidian vault name used for obsidian:// deep links. Leave empty to use OBSIDIAN_VAULT_NAME or the default.'),
 })
 
 // Volatile config fields arrive as `Volatile<T>` references (schemastery wraps
