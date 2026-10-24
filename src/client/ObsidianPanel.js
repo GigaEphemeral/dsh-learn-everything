@@ -149,7 +149,7 @@ function NoteView(props) {
     const next = link.getAttribute('data-wikilink')
     if (next) props.onOpen(next)
   }
-  return createElement('div', { style: { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } },
+  return createElement('div', { style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } },
     createElement('div', { style: { padding: '8px', borderBottom: '1px solid #2c2c2c', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 } },
       createElement('button', { onClick: onBack, style: { flexShrink: 0 } }, '← 返回'),
       createElement('span', { title: path, style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#aaa' } }, path),
@@ -172,7 +172,7 @@ function NoteView(props) {
 function GraphView() {
   // The graph page fetches /obsidian/graph itself: passing the whole graph
   // through ?data= exceeded the host's request-line limit (HTTP 431).
-  return createElement('div', { style: { height: '100%', padding: 8, boxSizing: 'border-box' } },
+  return createElement('div', { style: { flex: 1, minHeight: 0, padding: 8, boxSizing: 'border-box' } },
     createElement('iframe', {
       src: apiUrl('/obsidian/graph-page'),
       title: '知识图谱',
@@ -200,7 +200,7 @@ export function ObsidianPanel(props) {
   const openNote = (path) => setView({ kind: 'note', path })
   // Notes and the graph own their scroll containers; lists scroll in the body.
   const bodyStyle = view.kind === 'note' || view.kind === 'graph'
-    ? { flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex' }
+    ? { flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }
     : { flex: 1, minHeight: 0, overflowY: 'auto' }
   return createElement('div', { style: { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, Segoe UI, sans-serif', color: '#ddd' } },
     createElement('div', { style: { padding: 8, borderBottom: '1px solid #2c2c2c', flexShrink: 0 } },
