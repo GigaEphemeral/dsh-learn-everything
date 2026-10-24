@@ -226,7 +226,9 @@ test("package.json keeps the CLIs publishable and the default test run local-onl
   for (const entry of ["lib", "tsconfig.json"]) {
     assert.ok(pkg.files.includes(entry), `files must include ${entry} for the CLIs to run after install`);
   }
-  assert.equal(pkg.scripts.prepack, "npm run build", "packing must build lib/ first");
+  assert.equal(pkg.scripts.prepack, "npm run build && npm run build:client", "packing must build lib/ and the client bundle first");
+  assert.ok(pkg.files.includes("panel"), "the graph page and its vendored library must ship");
+  assert.equal(pkg.exports["./cordis.patch.yml"], "./cordis.patch.yml", "the bundle patch must stay exported");
   assert.match(pkg.scripts.test, /scripts\/run-tests\.mjs/);
   assert.doesNotMatch(pkg.scripts.test, /integration-live/, "the default test run must not include live vault tests");
   assert.match(pkg.scripts["test:live"], /integration-live/);

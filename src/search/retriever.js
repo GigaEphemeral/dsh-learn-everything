@@ -145,21 +145,39 @@ export class SearchRetriever {
     if (q.includes("标签") || q.includes("tag")) {
       return { kind: "tags", items: await this._tags() };
     }
-    // Query-aware: list the wiki/Sources directory the query asks about.
-    const dir = this._structuralDir(q);
-    const res = dir ? await this.adapter.list(dir) : await this.adapter.list("");
-    const items = Array.isArray(res?.files) ? res.files : [];
-    return { kind: "files", dir, items };
+    // A structural query can target several folders (source notes exist under
+    // both the generated wiki/sources and the top-level Sources/). Items carry
+    // their full vault path so callers do not re-prefix them.
+    const dirs = this._structuralDirs(q);
+    if (dirs.length === 0) {
+      return { kind: "files", dir: null, dirs: [], items: await this._listAll() };
+    }
+    const listings = await Promise.all(dirs.map(async (dir) => {
+      try {
+        const res = await this.adapter.list(dir);
+        return { dir, files: Array.isArray(res?.files) ? res.files : [] };
+      } catch (err) {
+        // A missing folder is a normal empty listing, not a failed query.
+        if (err instanceof ObsidianError && err.status === 404) return { dir, files: [] };
+        throw err;
+      }
+    }));
+    const items = listings.flatMap(({ dir, files }) => files.map((file) => `${dir}/${file}`));
+    return { kind: "files", dir: dirs.length === 1 ? dirs[0] : null, dirs, items };
   }
 
-  // Which directory does a structural query target? Wiki dirs win over the
-  // root listing; a generic "structure" query falls back to the root.
-  _structuralDir(q) {
-    if (q.includes("概念")) return "wiki/concepts";
-    if (q.includes("实体")) return "wiki/entities";
-    if (q.includes("来源")) return "wiki/sources";
-    if (q.includes("source") || q.includes("original") || q.includes("原文")) return "wiki/sources";
-    return null;
+  // Which directories does a structural query target? The configured wiki
+  // layout decides the wiki dirs; source-note queries include the top-level
+  // Sources/ folder the ingest pipeline actually writes.
+  _structuralDirs(q) {
+    const dirs = [];
+    if (q.includes("概念")) dirs.push(`${this.wikiDir}/concepts`);
+    if (q.includes("实体")) dirs.push(`${this.wikiDir}/entities`);
+    if (q.includes("来源")) dirs.push(`${this.wikiDir}/sources`, "Sources");
+    if (q.includes("source") || q.includes("original") || q.includes("原文")) {
+      dirs.push("Sources", `${this.wikiDir}/sources`);
+    }
+    return [...new Set(dirs)];
   }
 
   async _tags() {

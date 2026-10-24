@@ -21,3 +21,28 @@ test("appendCompileEvent records ordered progress and returns the latest", async
     assert.equal(reread.stages[0].stage, "pending");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("a truncated or wrong-shaped status file degrades to empty status", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cstat-"));
+  const file = join(dir, "status.json");
+  const { writeFile } = await import("node:fs/promises");
+  try {
+    await writeFile(file, "{not json");
+    assert.deepEqual(await readCompileStatus(file), emptyStatus());
+    await writeFile(file, JSON.stringify(null));
+    assert.deepEqual(await readCompileStatus(file), emptyStatus());
+    await writeFile(file, JSON.stringify({ last: { stage: "done" } }));
+    assert.deepEqual(await readCompileStatus(file), emptyStatus());
+    // A valid status recovers after a bad write.
+    await appendCompileEvent(file, { stage: "done" });
+    assert.equal((await readCompileStatus(file)).last.stage, "done");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("appendCompileEvent rejects an unknown stage", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cstat-"));
+  const file = join(dir, "status.json");
+  try {
+    await assert.rejects(() => appendCompileEvent(file, { stage: "Done" }), /unknown compile stage/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

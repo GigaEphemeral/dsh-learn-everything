@@ -2,6 +2,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ObsidianError } from "../src/obsidian/obsidian-adapter.js";
+import { mkdtemp, rm, chmod } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
+const execFile = promisify(execFileCallback);
 import { pendingSources } from "../scripts/compile-cli.mjs";
 
 test("pendingSources lists sources without a compiled wiki/sources page", async () => {
@@ -62,3 +68,28 @@ test("pendingSources surfaces non-404 errors", async () => {
   await assert.rejects(() => pendingSources(adapter), /boom/);
 });
 
+
+test("recordCompileEvent never rejects when status bookkeeping fails", async () => {
+  const { recordCompileEvent } = await import("../scripts/compile-cli.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "compile-cli-"));
+  try {
+    await chmod(dir, 0o500);
+    await recordCompileEvent(join(dir, "status.json"), { stage: "done", source: "Sources/x.md" });
+    assert.ok(true, "a failed status write is swallowed");
+  } finally {
+    await chmod(dir, 0o700);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("status mode works without OBSIDIAN_API_KEY", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "compile-cli-"));
+  try {
+    const env = { ...process.env, OBSIDIAN_STATE_DIR: dir };
+    delete env.OBSIDIAN_API_KEY;
+    const { stdout } = await execFile(process.execPath, ["scripts/compile-cli.mjs", "status"], { env });
+    assert.deepEqual(JSON.parse(stdout), { stages: [], last: null });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -13,6 +13,9 @@ test('graph page fetches its own data instead of taking it via the URL', async (
   assert.match(html, /fetch\(new URL\('graph', location\.href\)/)
   assert.equal(html.includes('params.get("data")'), false)
   assert.equal(html.includes("params.get('data')"), false)
+  assert.equal((html.match(/addEventListener\('message'/g) ?? []).length, 1, 'the message listener is registered once at page scope')
+  assert.match(html, /network\.setData/)
+  assert.match(html, /event\.origin !== location\.origin/)
 })
 
 test('the graph library is present and served as JavaScript', async () => {
@@ -40,4 +43,8 @@ test('the panel embeds the graph page without a data query and scrolls notes', a
   // The note preview body owns its scroll container and renders Markdown.
   assert.match(source, /overflowY: 'auto'/)
   assert.match(source, /renderMarkdown\(content\)/)
+  assert.match(source, /window\.location\.origin/)
+  assert.match(source, /onChange:/)
+  assert.match(source, /Promise\.all\(DIRS\.map/)
+  assert.match(source, /let ignore = false/)
 })

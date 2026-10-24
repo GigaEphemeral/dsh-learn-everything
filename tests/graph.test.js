@@ -39,3 +39,19 @@ test("buildGraph creates nodes and edges from [[links]]", () => {
   assert.deepEqual(types, ["concept", "concept", "entity"]);
   assert.equal(g.edges.some((e) => e.source === "concepts/a" && e.target === "concepts/b"), true);
 });
+
+test("normalizeNodeId strips Obsidian heading and block anchors", () => {
+  assert.equal(normalizeNodeId("concepts/Foo#Section"), "concepts/Foo");
+  assert.equal(normalizeNodeId("wiki/concepts/Foo#Section.md"), "concepts/Foo");
+  assert.equal(normalizeNodeId("entities/@a^block"), "entities/@a");
+});
+
+test("buildGraph links anchored wikilinks to the note node", () => {
+  const g = buildGraph([
+    { path: "wiki/concepts/a.md", content: "[[concepts/b#Heading]] and [[entities/e^block]]" },
+    { path: "wiki/concepts/b.md", content: "" },
+    { path: "wiki/entities/e.md", content: "" },
+  ]);
+  assert.equal(g.nodes.some((n) => n.id.includes("#") || n.id.includes("^")), false);
+  assert.equal(g.edges.some((e) => e.target === "concepts/b"), true);
+});

@@ -50,3 +50,29 @@ test('normalizes CRLF and preserves soft line breaks inside a paragraph', () => 
   const html = renderMarkdown('line one\r\nline two')
   assert.equal(html, '<p>line one<br>line two</p>')
 })
+
+test('link URLs are escaped exactly once and keep query separators', () => {
+  const html = renderInline('[x](https://e/?a=1&b=2)')
+  assert.equal(html.includes('href="https://e/?a=1&amp;b=2"'), true)
+  assert.equal(html.includes('&amp;amp;'), false)
+})
+
+test('inline passes are non-reentrant: wikilink inside an image URL stays inert', () => {
+  const html = renderInline('![x](http://a/[[b]])')
+  assert.equal(html.includes('<img'), true)
+  assert.equal(html.includes('data-wikilink'), false)
+  assert.equal(html.includes('<a href="#"'), false)
+})
+
+test('leading YAML frontmatter is stripped from the preview', () => {
+  const html = renderMarkdown('---\ntags: [a]\ndate: 2026-10-24\n---\n# Body')
+  assert.equal(html.includes('tags:'), false)
+  assert.equal(html, '<h1>Body</h1>')
+})
+
+test('top-level Sources wikilinks stay absolute and anchors are dropped', () => {
+  const sources = renderInline('[[Sources/foo]]')
+  assert.equal(sources.includes('data-wikilink="Sources/foo.md"'), true)
+  const anchored = renderInline('[[wiki/concepts/a#Section]]')
+  assert.equal(anchored.includes('data-wikilink="wiki/concepts/a.md"'), true)
+})

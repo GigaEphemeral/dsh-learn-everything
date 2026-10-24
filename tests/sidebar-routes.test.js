@@ -3,6 +3,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeRouteHandlers, registerObsidianRoutes } from "../src/sidebar/routes.js";
 import { NOT_CONFIGURED_CODE, routeErrorText } from "../src/sidebar/route-errors.js";
+import { ObsidianError } from "../src/obsidian/obsidian-adapter.js";
+import { appendCompileEvent } from "../src/obsidian/compile-status.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function fakeReq(url) {
   return { url, method: "GET", headers: {}, [Symbol.asyncIterator]: async function* () {} };
@@ -152,4 +157,85 @@ test("a connection-service getter that throws is fenced as forbidden, not a 400"
   const res = fakeRes();
   await registered[0].handler({ ...fakeReq("/obsidian/api/list"), headers: { host: "127.0.0.1:3082" } }, res);
   assert.equal(res.statusCode, 403);
+});
+
+test("a missing note returned as an Obsidian 404 is answered as 404, not 500", async () => {
+  const data = { ...fakeData(), adapter: { ...fakeData().adapter,
+    read: async () => { throw new ObsidianError("not found", { status: 404 }); },
+  } };
+  const h = makeRouteHandlers(data);
+  const res = fakeRes();
+  await h.read(fakeReq("/obsidian/api/read?path=wiki/missing.md"), res);
+  assert.equal(res.statusCode, 404);
+  assert.equal(JSON.parse(res.body).error.code, "not-found");
+});
+
+test("a data-layer construction failure is a configuration error, not 'set the key'", async () => {
+  const h = makeRouteHandlers(() => { throw new Error("Invalid URL") });
+  const res = fakeRes();
+  await h.list(fakeReq("/obsidian/api/list?dir=wiki"), res);
+  assert.equal(res.statusCode, 500);
+  assert.equal(JSON.parse(res.body).error.code, "obsidian-config");
+});
+
+test("compile-status never reads a caller-supplied file path", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "routes-status-"));
+  const secret = join(dir, "secret.json");
+  const { writeFile } = await import("node:fs/promises");
+  try {
+    await writeFile(secret, JSON.stringify({ stages: [{ at: "x", stage: "done" }], last: { stage: "done" } }));
+    const h = makeRouteHandlers({}, { getConfig: () => ({ compileStatusFile: null }) });
+    const res = fakeRes();
+    await h.compileStatus(fakeReq("/obsidian/compile-status?file=" + encodeURIComponent(secret)), res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body).value, { stages: [], last: null });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("compile-status reads the configured file when one is set", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "routes-status-"));
+  const file = join(dir, "status.json");
+  try {
+    await appendCompileEvent(file, { stage: "done", source: "Sources/x.md" });
+    const h = makeRouteHandlers({}, { getConfig: () => ({ compileStatusFile: file }) });
+    const res = fakeRes();
+    await h.compileStatus(fakeReq("/obsidian/compile-status"), res);
+    assert.equal(JSON.parse(res.body).value.last.stage, "done");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("the graph skips an unreadable page instead of blanking the whole graph", async () => {
+  const adapter = {
+    list: async (dir) => (dir === "wiki/concepts" ? { files: ["a.md", "b.md"] } : { files: [] }),
+    read: async (path) => {
+      if (path.endsWith("b.md")) throw new ObsidianError("gone", { status: 404 });
+      return "[[entities/e]]";
+    },
+  };
+  const h = makeRouteHandlers({ adapter });
+  const res = fakeRes();
+  await h.graph(fakeReq("/obsidian/graph"), res);
+  assert.equal(res.statusCode, 200);
+  const value = JSON.parse(res.body).value;
+  assert.ok(value.nodes.some((node) => node.id === "concepts/a"));
+});
+
+test("the loopback fallback fence accepts IPv6 and rejects non-loopback hosts", async () => {
+  const registered = [];
+  const ctx = {
+    effect: (fn) => fn(),
+    webServer: { register: (route) => { registered.push(route); return () => {}; } },
+    get: () => undefined,
+  };
+  registerObsidianRoutes(ctx, { apiKey: "k", createData: () => fakeData() });
+  const list = registered[0].handler;
+  const ipv6 = fakeRes();
+  await list({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers: { host: "[::1]:3081" } }, ipv6);
+  assert.equal(ipv6.statusCode, 200);
+  const explicit = fakeRes();
+  await list({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers: { host: "127.0.0.1:3081" } }, explicit);
+  assert.equal(explicit.statusCode, 200);
+  const remote = fakeRes();
+  await list({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers: { host: "evil.example" } }, remote);
+  assert.equal(remote.statusCode, 403);
 });

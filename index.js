@@ -12,6 +12,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
+import { resolveStateDir } from './src/ingest/state-dir.js'
+import { DEFAULT_BASE_URL, registerObsidianRoutes } from './src/sidebar/routes.js'
 
 /** Same rank as packaged dsh skill providers (BUNDLED_SKILL_RANK). */
 const BUNDLED_SKILL_RANK = 600
@@ -30,7 +32,7 @@ export const inject = ['skills']
 export const Config = z.object({
   apiKey: z.string().role('secret').default('').volatile()
     .description('Obsidian Local REST API key. Leave empty to use OBSIDIAN_API_KEY.'),
-  baseUrl: z.string().default('https://127.0.0.1:27124').volatile()
+  baseUrl: z.string().default('').volatile()
     .description('Obsidian Local REST API base URL. Leave empty to use OBSIDIAN_BASE_URL or the default.'),
 })
 
@@ -51,11 +53,11 @@ export function readConfigString(value, fallback = '') {
 // without restarting the host.
 export function resolveObsidianConfig(config) {
   const apiKey = (readConfigString(config?.apiKey) || process.env.OBSIDIAN_API_KEY || '').trim()
-  const baseUrl = (readConfigString(config?.baseUrl) || process.env.OBSIDIAN_BASE_URL || 'https://127.0.0.1:27124').trim()
-  return { apiKey, baseUrl }
+  const baseUrl = (readConfigString(config?.baseUrl) || process.env.OBSIDIAN_BASE_URL || DEFAULT_BASE_URL).trim()
+  const compileStatusFile = (process.env.OBSIDIAN_COMPILE_STATUS?.trim()
+    || join(resolveStateDir(import.meta.url), 'compile-status.json'))
+  return { apiKey, baseUrl, compileStatusFile }
 }
-
-import { registerObsidianRoutes } from './src/sidebar/routes.js'
 
 export function apply(ctx, config) {
   const initial = resolveObsidianConfig(config)
@@ -76,13 +78,6 @@ export function apply(ctx, config) {
       }
     })
   }
-  if (typeof ctx.on === 'function') {
-    ctx.on('loader/volatile-update', () => {
-      const next = resolveObsidianConfig(config)
-      console.log('[dsh-learn-everything] obsidian panel config updated; apiKey', next.apiKey ? 'set' : 'not set')
-    })
-  }
-
   ctx.skills.registerProvider(() => ({
     name: PROVIDER_NAME,
     async list(options) {

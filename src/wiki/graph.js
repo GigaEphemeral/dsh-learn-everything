@@ -8,6 +8,9 @@ export const GRAPH_TYPES = Object.freeze(["concept", "entity", "source"]);
 // prefix and the ".md" suffix, keep the dir prefix ("concepts/x").
 export function normalizeNodeId(path) {
   let p = String(path || "").replace(/\\/g, "/");
+  // Obsidian links may carry a heading or block anchor; the graph node is the
+  // note, not "concepts/x#Section".
+  p = p.replace(/[#^].*$/, "");
   p = p.replace(/^wiki\//, "");
   p = p.replace(/\.md$/i, "");
   return p.trim();

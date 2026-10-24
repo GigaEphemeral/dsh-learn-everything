@@ -1,11 +1,19 @@
 // Vault event-stream subscription (S4): follow Obsidian change events (SSE)
-// for notifications. Uses node:https with TLS verification disabled (the
-// plugin serves a locally generated certificate), like ObsidianClient.
+// for notifications. The transport follows the base URL's protocol (https for
+// the plugin's self-signed certificate, plain http for a loopback listener).
 // Read-only: never writes the vault.
 
+import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
-const DEFAULT_TRANSPORT = httpsRequest;
+const DEFAULT_TRANSPORTS = { "http:": httpRequest, "https:": httpsRequest };
+const MAX_SSE_BUFFER = 1024 * 1024;
+
+/** Pick the request transport for a URL, unless the caller injected one. */
+export function transportFor(url, transport) {
+  if (transport !== undefined) return transport;
+  return DEFAULT_TRANSPORTS[url.protocol] ?? httpsRequest;
+}
 
 export class VaultEventError extends Error {
   constructor(message, { code, cause } = {}) {
@@ -15,28 +23,30 @@ export class VaultEventError extends Error {
   }
 }
 
-function httpJson({ method, url, apiKey, body, contentType, timeoutMs = 15000, transport = DEFAULT_TRANSPORT }) {
+function httpJson({ method, url, apiKey, body, contentType, timeoutMs = 15000, transport }) {
   const u = new URL(url);
+  const request = transportFor(u, transport);
   const opts = {
     method,
     hostname: u.hostname,
-    port: u.port || 443,
+    port: u.port || (u.protocol === "http:" ? 80 : 443),
     path: u.pathname + u.search,
     rejectUnauthorized: false,
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: {},
   };
+  if (apiKey) opts.headers.Authorization = `Bearer ${apiKey}`;
   if (body !== undefined) {
     opts.headers["Content-Length"] = Buffer.byteLength(body);
     if (contentType) opts.headers["Content-Type"] = contentType;
   }
   return new Promise((resolve, reject) => {
-    const req = transport(opts, (res) => {
+    const req = request(opts, (res) => {
       const chunks = [];
-      res.on("data", (c) => chunks.push(c));
+      res.on("data", (chunk) => chunks.push(chunk));
       res.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
         if (res.statusCode >= 200 && res.statusCode < 300) resolve({ status: res.statusCode, text });
-        else reject(new VaultEventError(`HTTP ${res.statusCode}`, { code: "http" }));
+        else reject(new VaultEventError(`HTTP ${res.statusCode}${text.trim() ? `: ${text.trim()}` : ""}`, { code: "http" }));
       });
     });
     req.on("error", (err) => reject(new VaultEventError(`request failed: ${err.message}`, { code: "network", cause: err })));
@@ -47,58 +57,93 @@ function httpJson({ method, url, apiKey, body, contentType, timeoutMs = 15000, t
 }
 
 // Subscribe to one Obsidian event and return the signed listener URL.
-export async function subscribeVaultEvent({ baseUrl, apiKey, event = "modify", filter = null, transport = DEFAULT_TRANSPORT }) {
+export async function subscribeVaultEvent({ baseUrl, apiKey, event = "modify", filter = null, transport }) {
   const url = `${baseUrl}/events/vault/${encodeURIComponent(event)}/`;
   const body = filter ? JSON.stringify(filter) : undefined;
   const contentType = filter ? "application/vnd.olrapi.jsonlogic+json" : undefined;
   const { text } = await httpJson({ method: "POST", url, apiKey, body, contentType, transport });
-  let j;
+  let parsed;
   try {
-    j = JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
     throw new VaultEventError("event subscribe returned non-JSON", { code: "shape" });
   }
-  if (!j || typeof j.url !== "string") {
+  if (!parsed || typeof parsed.url !== "string") {
     throw new VaultEventError("event subscribe returned no stream URL", { code: "shape" });
   }
-  return { id: j.id, url: j.url, signed: j.signed === true };
+  return { id: parsed.id, url: parsed.url, signed: parsed.signed === true };
 }
 
-// Follow a signed SSE stream: invoke onEvent per data line. Stops after
-// stopMs so tests and callers never hang forever.
-export function streamEvents(streamUrl, { onEvent, stopMs = 10000, transport = DEFAULT_TRANSPORT } = {}) {
+// Follow a signed SSE stream: invoke onEvent per complete event. Stops after
+// stopMs so tests and callers never hang forever. Every exit path settles the
+// promise exactly once, and an intentional stop cannot surface as a failure.
+export function streamEvents(streamUrl, { onEvent, stopMs = 10000, apiKey, transport } = {}) {
   const u = new URL(streamUrl);
+  const request = transportFor(u, transport);
   return new Promise((resolve, reject) => {
-    const req = transport({
+    let settled = false;
+    let stopped = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+    const req = request({
       hostname: u.hostname,
-      port: u.port || 443,
+      port: u.port || (u.protocol === "http:" ? 80 : 443),
       path: u.pathname + u.search,
       rejectUnauthorized: false,
+      headers,
     }, (res) => {
       if (res.statusCode !== 200) {
         res.resume();
-        reject(new VaultEventError(`stream HTTP ${res.statusCode}`, { code: "http" }));
+        finish(reject, new VaultEventError(`stream HTTP ${res.statusCode}`, { code: "http" }));
         return;
       }
       let buffer = "";
-      let stopped = false;
       const deadline = Date.now() + stopMs;
-      const timer = setTimeout(() => { stopped = true; req.destroy(); }, Math.max(stopMs + 500, 1000));
+      const timer = setTimeout(() => {
+        stopped = true;
+        req.destroy();
+      }, Math.max(stopMs + 500, 1000));
+      const stop = () => {
+        clearTimeout(timer);
+        stopped = true;
+        req.destroy();
+        finish(resolve);
+      };
       res.on("data", (chunk) => {
         buffer += chunk.toString("utf8");
-        let idx;
-        while ((idx = buffer.indexOf("\n\n")) >= 0) {
-          const block = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-          const line = block.split("\n").find((l) => l.startsWith("data:"));
-          if (line) onEvent?.(line.slice(5).trim());
+        if (buffer.length > MAX_SSE_BUFFER) {
+          // A peer that never sends the delimiter must not grow memory forever.
+          buffer = "";
         }
-        if (Date.now() > deadline) { req.destroy(); }
+        let index;
+        while ((index = buffer.indexOf("\n\n")) >= 0) {
+          const block = buffer.slice(0, index);
+          buffer = buffer.slice(index + 2);
+          const data = block
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).replace(/^ /, ""))
+            .join("\n");
+          if (data) onEvent?.(data);
+        }
+        if (Date.now() > deadline) stop();
       });
-      res.on("end", () => { clearTimeout(timer); resolve(); });
-      res.on("error", (err) => { clearTimeout(timer); if (stopped) resolve(); else reject(new VaultEventError(`stream error: ${err.message}`, { code: "network", cause: err })); });
+      res.on("end", () => { clearTimeout(timer); finish(resolve); });
+      res.on("close", () => { clearTimeout(timer); finish(resolve); });
+      res.on("error", (err) => {
+        clearTimeout(timer);
+        if (stopped) finish(resolve);
+        else finish(reject, new VaultEventError(`stream error: ${err.message}`, { code: "network", cause: err }));
+      });
     });
-    req.on("error", (err) => reject(new VaultEventError(`stream open failed: ${err.message}`, { code: "network", cause: err })));
+    req.on("error", (err) => {
+      if (stopped) finish(resolve);
+      else finish(reject, new VaultEventError(`stream open failed: ${err.message}`, { code: "network", cause: err }));
+    });
     req.end();
   });
 }

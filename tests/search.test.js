@@ -182,3 +182,29 @@ test("readNote turns a 404 into null and rethrows other failures (E17)", async (
   assert.deepEqual(await retriever.readNote("here.md"), { content: "ok" });
   await assert.rejects(() => retriever.readNote("broken.md"), (err) => err.status === 500);
 });
+
+test("structural uses the configured wikiDir and lists Sources for source queries", async () => {
+  const calls = [];
+  const adapter = {
+    list: async (dir) => {
+      calls.push(dir);
+      if (dir === "Knowledge/Wiki/concepts") return { files: ["a.md"] };
+      if (dir === "Knowledge/Wiki/sources") throw new ObsidianError("no dir", { status: 404 });
+      if (dir === "Sources") return { files: ["src.md"] };
+      throw new Error("unexpected " + dir);
+    },
+  };
+  const retriever = new SearchRetriever({ adapter, wikiDir: "Knowledge/Wiki" });
+  const concepts = await retriever.structural("概念目录有哪些");
+  assert.deepEqual(concepts.items, ["Knowledge/Wiki/concepts/a.md"]);
+  const sources = await retriever.structural("Sources 目录有哪些来源笔记");
+  assert.deepEqual(sources.items.sort(), ["Sources/src.md"]);
+  assert.deepEqual(sources.dirs.sort(), ["Knowledge/Wiki/sources", "Sources"]);
+  assert.ok(calls.includes("Sources"));
+});
+
+test("structural degrades a missing target folder to an empty listing", async () => {
+  const adapter = { list: async () => { throw new ObsidianError("gone", { status: 404 }); } };
+  const retriever = new SearchRetriever({ adapter });
+  assert.deepEqual(await retriever.structural("实体有哪些"), { kind: "files", dir: "wiki/entities", dirs: ["wiki/entities"], items: [] });
+});

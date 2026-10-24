@@ -18,7 +18,7 @@ test('parsed volatile fields are references read through get()', () => {
   assert.equal(typeof parsed.apiKey.get, 'function');
   assert.equal(typeof parsed.baseUrl.get, 'function');
   assert.equal(parsed.apiKey.get(), '');
-  assert.equal(parsed.baseUrl.get(), 'https://127.0.0.1:27124');
+  assert.equal(parsed.baseUrl.get(), '');
 });
 
 test('readConfigString accepts plain strings and Volatile references', () => {
@@ -34,15 +34,14 @@ test('resolveObsidianConfig prefers plugin config over the environment', () => {
   process.env.OBSIDIAN_API_KEY = 'env-key';
   process.env.OBSIDIAN_BASE_URL = 'https://env.example';
   try {
-    assert.deepEqual(resolveObsidianConfig({ apiKey: 'cfg-key', baseUrl: 'https://cfg.example' }), {
-      apiKey: 'cfg-key',
-      baseUrl: 'https://cfg.example',
-    });
+    const configured = resolveObsidianConfig({ apiKey: 'cfg-key', baseUrl: 'https://cfg.example' });
+    assert.equal(configured.apiKey, 'cfg-key');
+    assert.equal(configured.baseUrl, 'https://cfg.example');
+    assert.ok(configured.compileStatusFile.endsWith('compile-status.json'));
     // An empty configured value falls back to the environment, then the default.
-    assert.deepEqual(resolveObsidianConfig({ apiKey: '', baseUrl: '' }), {
-      apiKey: 'env-key',
-      baseUrl: 'https://env.example',
-    });
+    const fromEnv = resolveObsidianConfig({ apiKey: '', baseUrl: '' });
+    assert.equal(fromEnv.apiKey, 'env-key');
+    assert.equal(fromEnv.baseUrl, 'https://env.example');
   } finally {
     if (prevKey === undefined) delete process.env.OBSIDIAN_API_KEY;
     else process.env.OBSIDIAN_API_KEY = prevKey;

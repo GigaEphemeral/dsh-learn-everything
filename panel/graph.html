@@ -30,6 +30,8 @@
   // The page owns its data read: the panel embeds this page without a query
   // payload, so a large graph never exceeds the host's request-line limit.
   // Same-origin cookies authenticate the fenced route.
+  var network = null;
+  var currentNodes = [];
   var statusLine = document.createElement('div');
   statusLine.id = 'status';
   document.body.appendChild(statusLine);
@@ -59,58 +61,70 @@
     var button = document.createElement('button');
     button.textContent = '在 Obsidian 打开';
     button.addEventListener('click', function () {
-      var vault = new URLSearchParams(location.search).get('vault') || 'learnEverything';
-      window.open('obsidian://open?vault=' + encodeURIComponent(vault) + '&file=' + encodeURIComponent(node.id));
+      var vault = new URLSearchParams(location.search).get('vault');
+      var target = 'obsidian://open?file=' + encodeURIComponent(node.id)
+        + (vault ? '&vault=' + encodeURIComponent(vault) : '');
+      window.open(target, '_blank', 'noopener');
     });
     info.appendChild(title);
     info.appendChild(type);
     info.appendChild(path);
     info.appendChild(button);
-    window.parent.postMessage({ source: 'wiki-graph', type: 'node-click', id: node.id }, '*');
+    window.parent.postMessage({ source: 'wiki-graph', type: 'node-click', id: node.id }, location.origin);
   }
 
   function render(data) {
     var container = document.getElementById('graph');
-    if (!data || !Array.isArray(data.nodes) || data.nodes.length === 0) {
-      setStatus('无图谱数据（wiki 为空或尚未生成）。');
+    var nodesInput = Array.isArray(data && data.nodes)
+      ? data.nodes.filter(function (n) { return n && typeof n.id === 'string' && n.id; })
+      : [];
+    var edgesInput = Array.isArray(data && data.edges) ? data.edges : [];
+    currentNodes = nodesInput;
+    if (nodesInput.length === 0 || typeof vis === 'undefined' || !vis.Network) {
+      if (network) { network.destroy(); network = null; }
+      clear(container);
       var info = document.getElementById('info');
       clear(info);
       var title = document.createElement('h3');
       title.textContent = '知识图谱';
       var empty = document.createElement('div');
-      empty.textContent = '无图谱数据。';
+      empty.textContent = nodesInput.length === 0 ? '无图谱数据（wiki 为空或尚未生成）。' : '图谱库未能加载（panel/vis-network.min.js）。';
       info.appendChild(title);
       info.appendChild(empty);
+      setStatus(nodesInput.length === 0 ? '无图谱数据。' : '图谱库未能加载。', nodesInput.length !== 0);
       return;
     }
-    if (typeof vis === 'undefined' || !vis.Network) {
-      setStatus('图谱库未能加载（panel/vis-network.min.js）。', true);
-      return;
+    setStatus(nodesInput.length + ' 个节点 · ' + edgesInput.length + ' 条边');
+    var nodes = new vis.DataSet(nodesInput.map(function (n) {
+      return { id: n.id, label: n.label || n.id, group: n.type, title: n.id, color: colorFor(n.type) };
+    }));
+    var edges = new vis.DataSet(edgesInput
+      .filter(function (e) { return e && e.source && e.target; })
+      .map(function (e, i) { return { id: i, from: e.source, to: e.target }; }));
+    if (network === null) {
+      network = new vis.Network(container, { nodes: nodes, edges: edges }, {
+        nodes: { shape: 'dot', size: 14, font: { color: '#ddd', size: 13 } },
+        edges: { color: { color: '#555', highlight: '#6cb6ff' }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } },
+        physics: { enabled: true, solver: 'forceAtlas2Based', stabilization: { iterations: 200 } },
+        interaction: { hover: true },
+      });
+      network.on('click', function (event) {
+        var id = event.nodes[0];
+        if (!id) return;
+        var node = currentNodes.find(function (n) { return n.id === id; });
+        if (node) showInfo(node);
+      });
+    } else {
+      network.setData({ nodes: nodes, edges: edges });
     }
-    setStatus(data.nodes.length + ' 个节点 · ' + (data.edges || []).length + ' 条边');
-    var nodes = new vis.DataSet(data.nodes.map(function (n) {
-      return { id: n.id, label: n.label, group: n.type, title: n.id, color: colorFor(n.type) };
-    }));
-    var edges = new vis.DataSet((data.edges || []).map(function (e, i) {
-      return { id: i, from: e.source, to: e.target };
-    }));
-    var network = new vis.Network(container, { nodes: nodes, edges: edges }, {
-      nodes: { shape: 'dot', size: 14, font: { color: '#ddd', size: 13 } },
-      edges: { color: { color: '#555', highlight: '#6cb6ff' }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } },
-      physics: { enabled: true, solver: 'forceAtlas2Based', stabilization: { iterations: 200 } },
-      interaction: { hover: true },
-    });
-    network.on('click', function (event) {
-      var id = event.nodes[0];
-      if (!id) return;
-      var node = data.nodes.find(function (n) { return n.id === id; });
-      if (node) showInfo(node);
-    });
-    // The parent panel can still push a fresher graph without reloading.
-    window.addEventListener('message', function (event) {
-      if (event.data && event.data.source === 'wiki-graph' && event.data.type === 'data') render(event.data.graph);
-    });
   }
+
+  // Registered once per page: re-registering it inside render() multiplied
+  // listeners (and renders) on every parent push.
+  window.addEventListener('message', function (event) {
+    if (event.origin !== location.origin) return;
+    if (event.data && event.data.source === 'wiki-graph' && event.data.type === 'data') render(event.data.graph);
+  });
 
   function load() {
     setStatus('加载中…');

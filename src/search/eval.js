@@ -8,9 +8,13 @@ function norm(p) {
   return String(p || "").replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
 }
 
-// Does one normalized path match an expected path (either contains the other)?
+// A result matches an expected path when it is that path or lives below an
+// expected directory. Substring matching let `dsh-bundle-patch.md` satisfy
+// `wiki/concepts/dsh-bundle-patch.md` and `wiki/concepts.md` satisfy the
+// `wiki/concepts` folder, inflating recall/citation.
 function pathMatches(have, expected) {
-  return have.includes(expected) || expected.includes(have);
+  if (!have || !expected) return false;
+  return have === expected || have.startsWith(expected.endsWith("/") ? expected : expected + "/");
 }
 
 export function recallAt10(results, expectedPaths) {
@@ -31,6 +35,15 @@ export function citationAccuracy(citedPaths, expectedPaths) {
 export function noFabricationHonest(sufficiency, expectNone) {
   if (!expectNone) return true;
   return sufficiency.level === "none" || sufficiency.level === "partial";
+}
+
+// Honesty denominator is only the no-answer cases: treating every case as a
+// potential no-answer made the metric look high even when all no-answer cases
+// fabricated.
+export function honestyRate(entries) {
+  const noAnswer = entries.filter((entry) => entry.expectNone === true);
+  if (noAnswer.length === 0) return null;
+  return noAnswer.filter((entry) => entry.honest === true).length / noAnswer.length;
 }
 
 export function evaluateCase({ results = [], sufficiency = { level: "none" }, citedPaths = [] }, expectation) {

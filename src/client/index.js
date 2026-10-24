@@ -59,7 +59,11 @@ export function apply(ctx) {
         key: 'obsidian',
         inject: (sessionId) => ({ sessionId }),
       }, ObsidianTitle))
-      return () => { disposeType(); offBody(); offTitle() }
+      return () => {
+        disposeType()
+        if (typeof offBody === 'function') offBody()
+        if (typeof offTitle === 'function') offTitle()
+      }
     })
   })
 }

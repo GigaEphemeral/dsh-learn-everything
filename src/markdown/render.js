@@ -1,11 +1,16 @@
 // Minimal, dependency-free Markdown renderer for the Obsidian note preview
 // (S4). Obsidian's REST API serves raw Markdown, so the panel renders it here.
-// Safety: every input is HTML-escaped first; inline patterns then only add
-// tags this module creates, and href/src values are restricted to safe
-// schemes. Supported: headings, paragraphs, emphasis, inline/fenced code,
-// lists, blockquotes, tables, rules, links, images, and Obsidian wikilinks.
+//
+// Safety pipeline: the whole line is HTML-escaped once; code spans, links,
+// images, and wikilinks are then lifted into opaque placeholders; emphasis is
+// applied only to the remaining text; finally the safe HTML stored for each
+// placeholder is restored. Later passes therefore never rewrite markup
+// produced by earlier passes (which could inject attribute-breaking tags).
+// Supported: headings, paragraphs, emphasis, inline/fenced code, lists,
+// blockquotes, tables, rules, links, images, and Obsidian wikilinks.
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const PLACEHOLDER_RE = /\uE000(\d+)\uE001/g
 
 /** Escape the five HTML-significant characters. */
 export function escapeHtml(value) {
@@ -13,45 +18,60 @@ export function escapeHtml(value) {
 }
 
 // Only these URL shapes may become href/src; everything else (javascript:,
-// data:, unrecognized schemes) degrades to '#'.
-function safeUrl(raw) {
-  const url = String(raw ?? '').trim()
-  if (/^(https?:|mailto:|obsidian:|#|\/|\.\/|\.\.\/)/i.test(url)) return escapeHtml(url)
+// data:, unrecognized schemes) degrades to '#'. The value is already escaped
+// by renderInline, so it must not be escaped a second time.
+function safeUrl(encoded) {
+  const url = encoded.trim()
+  if (/^(https?:|mailto:|obsidian:|#|\/|\.\/|\.\.\/)/i.test(url)) return url
   return '#'
 }
 
-// [[concepts/a|label]] addresses a vault note; resolve it to the wiki path the
-// read route expects. Non-vault targets (URLs) are left as plain text.
+// [[concepts/a|label]] addresses a vault note. Wiki dirs get the wiki/ prefix;
+// top-level vault folders (Sources, Learning, already wiki/) stay absolute.
+// A heading/block anchor is dropped: the read route addresses whole notes.
+function wikilinkPath(target) {
+  const note = target.split('#')[0].split('^')[0].trim()
+  if (!note || /^[a-z][a-z0-9+.-]*:/i.test(note)) return null
+  if (/^wiki\//.test(note) || /^(Sources|Learning)\//.test(note)) return note
+  if (/^(concepts|entities|sources)\//.test(note)) return 'wiki/' + note
+  if (!note.includes('/')) return 'wiki/' + note
+  return note
+}
+
 function wikilink(target, label) {
-  const note = target.split('#')[0].trim()
-  if (!note || /^[a-z][a-z0-9+.-]*:/i.test(note)) return label ?? target
-  const withDir = note.startsWith('wiki/') ? note : 'wiki/' + note
-  const path = withDir.endsWith('.md') ? withDir : withDir + '.md'
-  return `<a href="#" class="dsh-obsidian-wikilink" data-wikilink="${escapeHtml(path)}">${label ?? target}</a>`
+  const path = wikilinkPath(target)
+  if (path === null) return label ?? target
+  return `<a href="#" class="dsh-obsidian-wikilink" data-wikilink="${path}.md">${label ?? target}</a>`
 }
 
-function emphasize(escaped) {
+/** Tokenize links/images/wikilinks/code into placeholders so emphasis cannot touch them. */
+function tokenizeInline(escaped) {
+  const tokens = []
+  const keep = (html) => `\uE000${tokens.push(html) - 1}\uE001`
   let text = escaped
+  text = text.replace(/`([^`\n]+)`/g, (_, code) => keep(`<code>${code}</code>`))
   text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,
-    (_, alt, url) => `<img alt="${alt}" src="${safeUrl(url)}" loading="lazy">`)
+    (_, alt, url) => keep(`<img alt="${alt}" src="${safeUrl(url)}" loading="lazy">`))
   text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
-    (_, label, url) => `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`)
-  text = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => wikilink(target, label))
-  text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-  text = text.replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
-  text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-  text = text.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>')
-  text = text.replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
-  return text
+    (_, label, url) => keep(`<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`))
+  text = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => keep(wikilink(target, label)))
+  return { text, tokens }
 }
 
-/** Render one line's inline Markdown. Code spans are escaped but never emphasized. */
+function emphasize(text) {
+  let result = text
+  result = result.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+  result = result.replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+  result = result.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+  result = result.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>')
+  result = result.replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+  return result
+}
+
+/** Render one line's inline Markdown. */
 export function renderInline(value) {
-  const escaped = escapeHtml(value)
-  return escaped.split(/(`[^`\n]*`)/).map((part) => {
-    if (/^`[^`\n]*`$/.test(part)) return `<code>${part.slice(1, -1)}</code>`
-    return emphasize(part)
-  }).join('')
+  const { text, tokens } = tokenizeInline(escapeHtml(value))
+  return emphasize(text).replace(PLACEHOLDER_RE, (_, index) => tokens[Number(index)] ?? '')
 }
 
 function splitCells(line) {
@@ -113,13 +133,23 @@ function renderFence(lines, start) {
   return { html: `<pre><code${className}>${escapeHtml(code.join('\n'))}</code></pre>`, next: index }
 }
 
+// A leading YAML frontmatter block is metadata, not note body.
+function stripFrontmatter(source) {
+  const normalized = String(source ?? '').replace(/\r\n?/g, '\n')
+  if (!normalized.startsWith('---\n')) return normalized
+  const end = normalized.indexOf('\n---', 4)
+  if (end === -1) return normalized
+  const after = normalized.slice(end + 4)
+  return after.startsWith('\n') ? after.slice(1) : after
+}
+
 /**
  * Render a Markdown document to safe HTML.
  * @param source - raw Markdown text (Obsidian note content).
  * @returns HTML for a scrollable preview container.
  */
 export function renderMarkdown(source) {
-  const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n')
+  const lines = stripFrontmatter(source).split('\n')
   const blocks = []
   const paragraph = []
   const flush = () => {

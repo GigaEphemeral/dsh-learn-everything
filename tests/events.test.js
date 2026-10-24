@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { subscribeVaultEvent, streamEvents, VaultEventError } from "../src/obsidian/events.js";
+import { subscribeVaultEvent, streamEvents, transportFor, VaultEventError } from "../src/obsidian/events.js";
 
 function fakeTransport(handler) {
   return (opts, cb) => {
@@ -47,4 +47,44 @@ test("subscribeVaultEvent wraps HTTP errors", async () => {
     () => subscribeVaultEvent({ baseUrl: "https://h", apiKey: "k", event: "modify", transport: fakeTransport({ statusCode: 401, data: "" }) }),
     VaultEventError,
   );
+});
+
+test("subscribeVaultEvent includes the HTTP error body in the diagnostic", async () => {
+  await assert.rejects(
+    () => subscribeVaultEvent({ baseUrl: "https://h", apiKey: "k", event: "modify", transport: fakeTransport({ statusCode: 401, data: "bad key" }) }),
+    (err) => { assert.match(err.message, /HTTP 401: bad key/); return true; },
+  );
+});
+
+test("streamEvents joins multi-line SSE data blocks", async () => {
+  const got = [];
+  await streamEvents("https://e/s", {
+    onEvent: (data) => got.push(data), stopMs: 3000,
+    transport: fakeTransport({ statusCode: 200, data: "data: first\ndata: second\n\n" }),
+  });
+  assert.deepEqual(got, ["first\nsecond"]);
+});
+
+test("streamEvents sends the API key only when given and resolves on close without end", async () => {
+  let seen;
+  const transport = (opts, cb) => {
+    seen = opts;
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    queueMicrotask(() => { cb(res); res.emit("close"); });
+    const req = new EventEmitter();
+    req.setTimeout = () => {};
+    req.end = () => {};
+    req.destroy = () => {};
+    req.write = () => {};
+    return req;
+  };
+  await streamEvents("https://e/s", { stopMs: 3000, apiKey: "k", transport });
+  assert.equal(seen.headers.Authorization, "Bearer k");
+});
+
+test("transportFor selects http vs https and honours an injected transport", () => {
+  const httpTransport = () => {};
+  assert.equal(transportFor(new URL("http://h/x"), httpTransport), httpTransport);
+  assert.notEqual(transportFor(new URL("http://h/x")), transportFor(new URL("https://h/x")));
 });

@@ -37,7 +37,9 @@ const MD_STYLE = `
 `
 
 function apiUrl(path, params) {
-  const base = (document.baseURI ?? window.location.href).replace(/\/$/, '')
+  // Routes are absolute (/obsidian/...); document.baseURI would append the
+  // current session route or token query to every panel request.
+  const base = window.location.origin
   const qs = new URLSearchParams(params).toString()
   return base + path + (qs ? '?' + qs : '')
 }
@@ -77,15 +79,20 @@ function DirList(props) {
   const [lists, setLists] = useState({})
   const [error, setError] = useState('')
   useEffect(() => {
-    for (const dir of DIRS) {
-      getJson(apiUrl('/obsidian/api/list', { dir })).then((j) => {
-        if (j.ok && Array.isArray(j.value?.files)) {
-          setLists((prev) => Object.assign({}, prev, { [dir]: j.value.files }))
-        } else if (!j.ok) {
-          setError(errorText(j))
+    let ignore = false
+    Promise.all(DIRS.map((dir) => getJson(apiUrl('/obsidian/api/list', { dir })).then((result) => ({ dir, result }))))
+      .then((answers) => {
+        if (ignore) return
+        const next = {}
+        const errors = []
+        for (const { dir, result } of answers) {
+          if (result.ok && Array.isArray(result.value?.files)) next[dir] = result.value.files
+          else errors.push(errorText(result))
         }
+        setLists(next)
+        setError(errors[0] ?? '')
       })
-    }
+    return () => { ignore = true }
   }, [])
   return createElement('div', { style: { padding: 8, fontSize: 13 } },
     createElement(ErrorBanner, { text: error }),
@@ -108,16 +115,17 @@ function SearchView(props) {
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
   const run = () => {
-    if (!q.trim()) return
+    const query = q.trim()
+    if (!query) return
     setError('')
-    getJson(apiUrl('/obsidian/api/search', { q })).then((j) => {
+    getJson(apiUrl('/obsidian/api/search', { q: query })).then((j) => {
       if (j.ok) setResults(j.value?.results ?? [])
       else setError(errorText(j))
     })
   }
   return createElement('div', { style: { padding: 8, fontSize: 13 } },
     createElement(ErrorBanner, { text: error }),
-    createElement('input', { value: q, placeholder: '搜索知识库…', onInput: (e) => setQ(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') run() }, style: { width: '100%', boxSizing: 'border-box', padding: 4 } }),
+    createElement('input', { value: q, placeholder: '搜索知识库…', onChange: (e) => setQ(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') run() }, style: { width: '100%', boxSizing: 'border-box', padding: 4 } }),
     createElement('button', { onClick: run, style: { marginTop: 4 } }, '搜索'),
     results.map((r) =>
       createElement('div', { key: r.path, style: { padding: 4, cursor: 'pointer', color: '#6cb6ff' } },
@@ -133,12 +141,17 @@ function NoteView(props) {
   const [content, setContent] = useState(null)
   const [error, setError] = useState('')
   useEffect(() => {
+    // A slow read for the previous note must not overwrite the newly selected
+    // one, and a closed tab must not receive state updates.
+    let ignore = false
     setContent(null)
     setError('')
     getJson(apiUrl('/obsidian/api/read', { path })).then((j) => {
+      if (ignore) return
       if (j.ok) setContent(j.value?.content ?? '')
       else setError(errorText(j))
     })
+    return () => { ignore = true }
   }, [path])
   // Wikilinks rendered by the preview navigate inside the panel; external
   // links keep the browser's own behavior.
@@ -184,12 +197,22 @@ function GraphView() {
 function StatusView() {
   const [status, setStatus] = useState('—')
   useEffect(() => {
-    getJson(apiUrl('/obsidian/compile-status')).then((j) => {
-      if (j.ok && j.value?.last) {
-        const last = j.value.last
-        setStatus(last.stage + (last.source ? ' · ' + last.source : '') + ' · ' + (last.at ?? ''))
-      }
-    })
+    // keepMounted tabs do not remount: poll so a finished compile becomes visible.
+    let ignore = false
+    const load = () => {
+      getJson(apiUrl('/obsidian/compile-status')).then((j) => {
+        if (ignore) return
+        if (j.ok && j.value?.last) {
+          const last = j.value.last
+          setStatus(last.stage + (last.source ? ' · ' + last.source : '') + ' · ' + (last.at ?? ''))
+        } else if (!j.ok) {
+          setStatus('不可用')
+        }
+      })
+    }
+    load()
+    const timer = setInterval(load, 5000)
+    return () => { ignore = true; clearInterval(timer) }
   }, [])
   return createElement('div', { style: { padding: '6px 8px', borderTop: '1px solid #2c2c2c', fontSize: 11, color: '#888', flexShrink: 0 } }, '编译: ' + status)
 }

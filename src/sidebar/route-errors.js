@@ -4,6 +4,8 @@
 // DOM or a running host.
 
 export const NOT_CONFIGURED_CODE = 'obsidian-not-configured';
+export const UNAUTHORIZED_CODE = 'unauthorized';
+export const FORBIDDEN_CODE = 'forbidden';
 
 export const NOT_CONFIGURED_MESSAGE =
   'Obsidian access is not configured: set the API key in DSH plugin settings (dsh-learn-everything) or OBSIDIAN_API_KEY, then retry.';
@@ -17,6 +19,6 @@ const FENCE_UI_TEXT = '请求被 DSH 连接策略拒绝：请用 dsh 启动时�
 export function routeErrorText(error) {
   const code = error?.code;
   if (code === NOT_CONFIGURED_CODE) return NOT_CONFIGURED_UI_TEXT;
-  if (code === 'unauthorized' || code === 'forbidden') return FENCE_UI_TEXT;
+  if (code === UNAUTHORIZED_CODE || code === FORBIDDEN_CODE) return FENCE_UI_TEXT;
   return error?.message ?? '请求失败';
 }

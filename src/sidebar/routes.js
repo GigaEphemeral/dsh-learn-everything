@@ -17,9 +17,10 @@ import { assessSufficiency } from "../search/evidence.js";
 import { buildGraph } from "../wiki/graph.js";
 import { readCompileStatus } from "../obsidian/compile-status.js";
 import { WIKI_DIRS } from "../wiki/karpathy-driver.js";
-import { NOT_CONFIGURED_CODE, NOT_CONFIGURED_MESSAGE } from "./route-errors.js";
+import { FORBIDDEN_CODE, NOT_CONFIGURED_CODE, NOT_CONFIGURED_MESSAGE, UNAUTHORIZED_CODE } from "./route-errors.js";
 
-const DEFAULT_BASE_URL = "https://127.0.0.1:27124";
+export const DEFAULT_BASE_URL = "https://127.0.0.1:27124";
+const GRAPH_READ_CONCURRENCY = 8;
 
 function writeJson(res, status, data) {
   res.writeHead(status, { "content-type": "application/json" });
@@ -51,28 +52,66 @@ export function createObsidianData({ apiKey, baseUrl = DEFAULT_BASE_URL, compile
   return { client, adapter, retriever, compileStatusFile };
 }
 
-// Resolve the data layer for one request. Returning null means "not
-// configured", which the data routes map to 503.
+// A construction failure (for example a malformed base URL) is not the same
+// as "no API key": keep it visible as an explicit configuration error.
+const DATA_ERROR = Symbol("obsidian-data-error");
+
 function dataAccessor(source) {
   if (typeof source === "function") {
     return () => {
       try {
         return source();
-      } catch {
-        return null;
+      } catch (err) {
+        console.warn("[dsh-learn-everything] obsidian data layer failed:", err?.message || err);
+        return { [DATA_ERROR]: err };
       }
     };
   }
   return () => source;
 }
 
+// Read pages for the graph with bounded concurrency; one unreadable entry must
+// not blank the whole graph, and list() 404s already degrade to an empty dir.
+async function graphPages(adapter, dirs) {
+  const paths = [];
+  for (const dir of dirs) {
+    let files = [];
+    try {
+      const listing = await adapter.list(dir);
+      files = Array.isArray(listing?.files) ? listing.files : [];
+    } catch (err) {
+      if (err instanceof ObsidianError && err.status === 404) continue;
+      throw err;
+    }
+    for (const file of files) paths.push(dir + "/" + file);
+  }
+  const pages = [];
+  for (let start = 0; start < paths.length; start += GRAPH_READ_CONCURRENCY) {
+    const batch = paths.slice(start, start + GRAPH_READ_CONCURRENCY);
+    const contents = await Promise.all(batch.map(async (path) => {
+      try {
+        return { path, content: await adapter.read(path) };
+      } catch (err) {
+        if (err instanceof ObsidianError) return null;
+        throw err;
+      }
+    }));
+    for (const page of contents) if (page && typeof page.content === "string") pages.push(page);
+  }
+  return pages;
+}
+
 // Route handlers keyed by name; each (req, res) writes its JSON envelope.
 // `source` is either a data object (tests, static wiring) or a getter that
 // returns the current data layer or null when unconfigured.
-export function makeRouteHandlers(source) {
+export function makeRouteHandlers(source, { getConfig } = {}) {
   const current = dataAccessor(source);
   const requireData = (res) => {
     const data = current();
+    if (data === DATA_ERROR || data?.[DATA_ERROR] !== undefined) {
+      writeError(res, 500, "obsidian-config", "Obsidian configuration is invalid: check the API address.");
+      return null;
+    }
     if (data === null || data === undefined) {
       notConfigured(res);
       return null;
@@ -119,7 +158,12 @@ export function makeRouteHandlers(source) {
       if (content === null) writeError(res, 404, "not-found", "note " + path + " not found");
       else writeJson(res, 200, { ok: true, value: { path, content } });
     } catch (err) {
-      writeError(res, 500, "obsidian-read", err.message);
+      // ObsidianAdapter.read throws on 404; a missing note is a 404, not a 500.
+      if (err instanceof ObsidianError && err.status === 404) {
+        writeError(res, 404, "not-found", "note " + path + " not found");
+      } else {
+        writeError(res, 500, "obsidian-read", err.message);
+      }
     }
   };
 
@@ -127,21 +171,7 @@ export function makeRouteHandlers(source) {
     const data = requireData(res);
     if (!data) return;
     try {
-      const pages = [];
-      for (const dir of WIKI_DIRS) {
-        let files = [];
-        try {
-          const r = await data.adapter.list(dir);
-          files = r?.files ?? [];
-        } catch (err) {
-          if (err instanceof ObsidianError && err.status === 404) files = [];
-          else throw err;
-        }
-        for (const f of files) {
-          const content = await data.adapter.read(dir + "/" + f);
-          if (typeof content === "string") pages.push({ path: dir + "/" + f, content });
-        }
-      }
+      const pages = await graphPages(data.adapter, WIKI_DIRS);
       writeJson(res, 200, { ok: true, value: buildGraph(pages) });
     } catch (err) {
       writeError(res, 500, "obsidian-graph", err.message);
@@ -180,10 +210,11 @@ export function makeRouteHandlers(source) {
 
   handlers.compileStatus = async (req, res) => {
     try {
-      // Compile status comes from a local file, so it works without an API key;
-      // only the default path comes from the (possibly absent) data layer.
-      const data = current();
-      const filePath = queryParams(req.url).get("file") ?? data?.compileStatusFile ?? null;
+      // Never take a filesystem path from the request: only the configured
+      // status file may be read, so this route cannot exfiltrate arbitrary
+      // JSON (settings, credentials) through the panel's trust boundary.
+      const configured = getConfig?.()?.compileStatusFile ?? current()?.compileStatusFile;
+      const filePath = typeof configured === "string" && configured.trim() ? configured : null;
       const status = filePath ? await readCompileStatus(filePath) : { stages: [], last: null };
       writeJson(res, 200, { ok: true, value: status });
     } catch (err) {
@@ -198,8 +229,15 @@ export function makeRouteHandlers(source) {
 // local-loopback Hosts pass (defence against DNS rebinding of a route that
 // serves vault data).
 function localHostFence(req) {
-  const host = String(req?.headers?.host ?? "").toLowerCase();
-  return host === "localhost" || host.startsWith("localhost:") || host === "127.0.0.1" || host.startsWith("127.0.0.1:");
+  const host = String(req?.headers?.host ?? "").trim();
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.replace(/\.$/, "").toLowerCase();
+    return hostname === "localhost" || hostname === "::1" || hostname === "[::1]"
+      || /^127\.\d+\.\d+\.\d+$/.test(hostname);
+  } catch {
+    return false;
+  }
 }
 
 // Read a service without the Cordis property-getter semantics: an undeclared
@@ -242,7 +280,7 @@ export function registerObsidianRoutes(ctx, options = {}) {
     return cachedData;
   };
 
-  const handlers = makeRouteHandlers(resolveData);
+  const handlers = makeRouteHandlers(resolveData, { getConfig });
   const fence = (req) => {
     let connection;
     try {
@@ -290,7 +328,7 @@ export function registerObsidianRoutes(ctx, options = {}) {
               writeError(
                 res,
                 status,
-                status === 401 ? "unauthorized" : "forbidden",
+                status === 401 ? UNAUTHORIZED_CODE : FORBIDDEN_CODE,
                 "request rejected by the host connection policy",
               );
               return;

@@ -8,6 +8,16 @@ async function main() {
   const apiKey = process.env.OBSIDIAN_API_KEY;
   const event = process.argv[2] ?? "modify";
   const seconds = Number(process.argv[3] ?? 15);
+  if (!["create", "modify", "delete"].includes(event)) {
+    console.error("events-cli: <event> must be create, modify, or delete");
+    process.exitCode = 1;
+    return;
+  }
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    console.error("events-cli: <seconds> must be a positive number");
+    process.exitCode = 1;
+    return;
+  }
   if (!apiKey) {
     console.error("usage: OBSIDIAN_API_KEY=... node scripts/events-cli.mjs <create|modify|delete> [seconds]");
     process.exitCode = 1;
