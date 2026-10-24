@@ -104,7 +104,7 @@ async function graphPages(adapter, dirs) {
 // Route handlers keyed by name; each (req, res) writes its JSON envelope.
 // `source` is either a data object (tests, static wiring) or a getter that
 // returns the current data layer or null when unconfigured.
-export function makeRouteHandlers(source, { getConfig } = {}) {
+export function makeRouteHandlers(source, { getConfig, createData = createObsidianData } = {}) {
   const current = dataAccessor(source);
   const requireData = (res) => {
     const data = current();
@@ -219,10 +219,23 @@ export function makeRouteHandlers(source, { getConfig } = {}) {
   // Test whether the configured URL + API key can reach Obsidian.
   handlers.testConnection = async (req, res) => {
     const data = requireData(res);
-    if (!data) return;
+    const params = queryParams(req.url);
+    const stagedKey = (params.get("apiKey") ?? "").trim();
+    const stagedUrl = (params.get("baseUrl") ?? "").trim();
+    // The client may send staged (not-yet-saved) values so a wrong key is
+    // rejected BEFORE it is persisted: build a throwaway client for them.
+    let adapter = data?.adapter ?? null;
+    if (stagedKey || stagedUrl) {
+      const cfg = typeof getConfig === "function" ? (getConfig() ?? {}) : {};
+      const apiKey = stagedKey || (typeof cfg.apiKey === "string" ? cfg.apiKey.trim() : "");
+      const baseUrl = stagedUrl || DEFAULT_BASE_URL;
+      // Throwaway data layer for the staged values: nothing is persisted here.
+      adapter = createData({ apiKey, baseUrl, vaultName: cfg.vaultName }).adapter;
+    }
+    if (!adapter) { notConfigured(res); return; }
     const started = Date.now();
     try {
-      const health = await data.adapter.health();
+      const health = await adapter.health();
       const latency = Date.now() - started;
       // local-rest-api v5.5.2 answers GET / with { status: "OK", manifest } (no
       // authenticated/ok); the request resolving already proves the key is

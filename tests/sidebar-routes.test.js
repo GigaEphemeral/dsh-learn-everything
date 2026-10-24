@@ -241,3 +241,72 @@ test("the loopback fallback fence accepts IPv6 and rejects non-loopback hosts", 
   await list({ ...fakeReq("/obsidian/api/list?dir=wiki/concepts"), headers: { host: "evil.example" } }, remote);
   assert.equal(remote.statusCode, 403);
 });
+// ---- S4 additions (save-time validation & config surface) ----
+
+test("config route returns the configured vault name (never the apiKey)", async () => {
+  const h = makeRouteHandlers(fakeData(), { getConfig: () => ({ vaultName: "learnEverything" }) });
+  const res = fakeRes();
+  await h.config(fakeReq("/obsidian/api/config"), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).value.vaultName, "learnEverything");
+  assert.ok(!JSON.stringify(res.body).includes("apiKey"));
+});
+
+test("test-connection route reports connected health", async () => {
+  const h = makeRouteHandlers(fakeData(), { getConfig: () => ({}) });
+  const res = fakeRes();
+  await h.testConnection(fakeReq("/obsidian/api/test-connection"), res);
+  assert.equal(res.statusCode, 200);
+  const v = JSON.parse(res.body).value;
+  assert.equal(v.connected, true);
+  assert.ok(typeof v.latency === "number");
+});
+
+test("test-connection route treats the v5.5.2 { status: OK } shape as connected", async () => {
+  const data = fakeData();
+  data.adapter.health = async () => ({ status: "OK", manifest: { id: "obsidian-local-rest-api" } });
+  const h = makeRouteHandlers(data, { getConfig: () => ({}) });
+  const res = fakeRes();
+  await h.testConnection(fakeReq("/obsidian/api/test-connection"), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).value.connected, true);
+});
+
+test("test-connection route reports failure with an error code", async () => {
+  const data = fakeData();
+  data.adapter.health = async () => { throw new Error("ECONNREFUSED 127.0.0.1:27124") };
+  const h = makeRouteHandlers(data, { getConfig: () => ({}) });
+  const res = fakeRes();
+  await h.testConnection(fakeReq("/obsidian/api/test-connection"), res);
+  assert.equal(res.statusCode, 200);
+  const v = JSON.parse(res.body).value;
+  assert.equal(v.connected, false);
+  assert.equal(v.error.code, "network-error");
+});
+
+test("test-connection refuses a wrong staged key (save-time validation)", async () => {
+  const h = makeRouteHandlers(null, {
+    getConfig: () => ({ apiKey: "configured-key" }),
+    createData: () => ({ adapter: { health: async () => { throw new Error("401 Unauthorized") } } }),
+  });
+  const res = fakeRes();
+  await h.testConnection(fakeReq("/obsidian/api/test-connection?apiKey=wrong-key"), res);
+  assert.equal(res.statusCode, 200);
+  const v = JSON.parse(res.body).value;
+  assert.equal(v.connected, false);
+  assert.ok(v.error.code);
+});
+
+test("test-connection with a staged URL uses a throwaway client and reports failure", async () => {
+  let built = null;
+  const h = makeRouteHandlers(null, {
+    getConfig: () => ({ apiKey: "configured-key" }),
+    createData: (opts) => { built = opts; return { adapter: { health: async () => ({ status: "OK" }) } } },
+  });
+  const res = fakeRes();
+  await h.testConnection(fakeReq("/obsidian/api/test-connection?baseUrl=https%3A%2F%2F127.0.0.1%3A9999"), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(built.baseUrl, "https://127.0.0.1:9999");
+  assert.equal(built.apiKey, "configured-key");
+  assert.equal(JSON.parse(res.body).value.connected, true);
+});
