@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH + Obsidian 个人知识学习系统插件：连 Obsidian（受控读写/摄入/检索）+ 学习闭环（每日一练/追问）。Complete DSH plugin bundle.",
+  "description": "DSH + Obsidian \u4e2a\u4eba\u77e5\u8bc6\u5b66\u4e60\u7cfb\u7edf\u63d2\u4ef6\uff1a\u8fde Obsidian\uff08\u53d7\u63a7\u8bfb\u5199/\u6444\u5165/\u68c0\u7d22\uff09+ \u5b66\u4e60\u95ed\u73af\uff08\u6bcf\u65e5\u4e00\u7ec3/\u8ffd\u95ee\uff09\u3002Complete DSH plugin bundle.",
   "scripts": {
     "test": "npm run build && node scripts/run-tests.mjs",
     "test:live": "node --test tests/integration-live.test.js",
@@ -30,7 +30,9 @@
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-sidebar-right",
-        "@deepseek-ai/dsh-client-modules"
+        "@deepseek-ai/dsh-client-modules",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
       ],
       "platform": "web"
     }

@@ -1,13 +1,35 @@
 // Client half (S4): registers an "Obsidian" tab into DSH native right
-// sidebar via ctx.sidebarRightTabs + body/title slots (plain JS).
+// sidebar via ctx.sidebarRightTabs + body/title slots (plain JS), and the
+// bundle's configuration card into the DSH Plugins page.
 
 import { createElement } from 'react'
 import { ObsidianPanel } from './ObsidianPanel.js'
+import { ObsidianConfigCard } from './ObsidianConfigCard.js'
+import { createObsidianConfigForm } from './obsidian-config-form.js'
+import { registerBundleConfigPage, LOCALE_NS } from './config-page.js'
+import { zh, en } from './config-locales.js'
 
 export const name = 'dsh-learn-everything'
-export const inject = ['slots', 'sidebarRightTabs']
+export const inject = ['slots', 'sidebarRightTabs', 'configForms', 'locale']
 
 export function apply(ctx) {
+  ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-learn-everything: config dictionaries')
+  // The Plugins page only shows a configuration form for a bundle that
+  // registered a `plugins.bundle.config` entry keyed by its package name;
+  // the form reads the plugin's settings namespace through configForms.
+  ctx.effect(() => {
+    const form = createObsidianConfigForm(ctx)
+    const off = registerBundleConfigPage(ctx, {
+      component: ObsidianConfigCard,
+      locale: LOCALE_NS,
+      inject: () => ({ ...form }),
+    })
+    return () => {
+      if (typeof off === 'function') off()
+      form.dispose()
+    }
+  }, 'dsh-learn-everything: Plugins-page config card')
+
   ctx.inject(['sidebarRightTabs'], (injected) => {
     const tabs = injected.get('sidebarRightTabs')
     if (!tabs || typeof tabs.register !== 'function') return
