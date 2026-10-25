@@ -10,17 +10,17 @@
 
 ```mermaid
 flowchart TD
-  U[用户: /记住知识 + URL/本地文档] --> A[DSH Agent · LLM<br>读 skill 指令 / 调 CLI / 向用户确认 / 汇报]
-  A --> C[ingest-cli · 确定性代码]
-  C --> F[fetchUrl + htmlToMarkdown<br>外部接口: HTTPS 抓取, HTML→MD 确定性转换]
-  C --> P[preflight 查重<br>注册表哈希 + wiki slug · 无 LLM]
-  C --> G[确认门禁 ×2<br>无 LLM · 用户确认写入范围与计划]
-  C --> W[写入 Sources/slug.md<br>外部接口: obsidian local-rest-api]
-  C --> V[读回校验 · 外部接口]
-  C --> REG[注册表记录 code/.state/sources.json]
-  C --> K[可选编译: karpathywiki ingest-active-file<br>外部接口: MCP open_file + command_execute]
-  K --> KW[karpathywiki 内部 · LLM<br>生成 wiki/sources + concepts + entities 页]
-  KW --> MOUNT[智能挂载产物<br>wiki 页 source_file 指回原笔记 + [[链接]] 形成图谱边]
+  U["用户: /记住知识 + URL/本地文档"] --> A["DSH Agent · LLM<br>读 skill 指令 / 调 CLI / 向用户确认 / 汇报"]
+  A --> C["ingest-cli · 确定性代码"]
+  C --> F["fetchUrl + htmlToMarkdown<br>外部接口: HTTPS 抓取, HTML→MD 确定性转换"]
+  C --> P["preflight 查重<br>注册表哈希 + wiki slug · 无 LLM"]
+  C --> G["确认门禁 ×2<br>无 LLM · 用户确认写入范围与计划"]
+  C --> W["写入 Sources/slug.md<br>外部接口: obsidian local-rest-api"]
+  C --> V["读回校验 · 外部接口"]
+  C --> REG["注册表记录 code/.state/sources.json"]
+  C --> K["可选编译: karpathywiki ingest-active-file<br>外部接口: MCP open_file + command_execute"]
+  K --> KW["karpathywiki 内部 · LLM<br>生成 wiki/sources + concepts + entities 页"]
+  KW --> MOUNT["智能挂载产物<br>wiki 页 source_file 指回原笔记 + [[链接]] 形成图谱边"]
 ```
 
 ### 职责边界
