@@ -13,11 +13,8 @@ DSH 是唯一入口。全程由 LLM 组织：抽节点 → 学习 → 出题 →
 
 ## 流程
 
-1. **随机抽知识节点**：运行
-   ```bash
-   cd code && node --env-file=.env scripts/wiki-node-cli.mjs context random
-   ```
-   一次返回：节点正文、来源路径（含 sources 回退）、以及该节点的学习状态摘要（SQLite）。
+1. **随机抽知识节点**：调用原生工具 `practice_draw_node`（无参）。一次返回：节点正文、来源路径（含 sources 回退）、以及该节点的学习状态摘要（SQLite）。
+   > 工具由插件宿主执行（无沙箱问题）；仅在工具不可用时才回退到 `node --env-file=.env scripts/wiki-node-cli.mjs context random`。
 
 2. **LLM 学习该节点**：直接使用上一步的 context 输出即可 —— 节点正文 + 来源 + 学习摘要已齐；
    **不要**再去翻目录/查环境变量/搜源码/搜 vault。仅当内容确实不足时才用 search-cli 补全。
