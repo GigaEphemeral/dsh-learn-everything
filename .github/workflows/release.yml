@@ -3,31 +3,33 @@ name: Release Package
 on:
   push:
     tags:
-      - 'v*' # 只有推送类似 v0.1.0 的 tag 时才触发
+      - 'v*' # 保留：只有推送类似 v0.1.0 的 tag 时才触发
 
 permissions:
-  contents: write # 需要写入权限才能创建 Release
+  contents: write # 保留：需要写入权限才能创建 Release 并上传文件
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-    - uses: pnpm/action-setup@v3
-      with:
-        version: 9
-
-    - uses: actions/setup-node@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
         node-version: 22
-        cache: 'pnpm'
+        cache: 'npm'
 
-    - run: pnpm install --frozen-lockfile
-    - run: pnpm pack
+    - name: Install Dependencies
+      run: npm ci 
+
+    - name: Package (npm pack)
+      run: npm pack
 
     - name: Create Release and Upload Asset
       uses: softprops/action-gh-release@v2
       with:
-        files: "*.tgz"
-        generate_release_notes: true # 自动生成更新日志
+        files: "*.tgz" # 匹配当前目录下打包出的 tgz 文件
+        generate_release_notes: true # 自动根据 commits 生成 Release 更新日志
