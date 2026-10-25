@@ -1,20 +1,25 @@
+<h1 align="center" style="font-size: 3em; font-weight: bold;">dsh-learn-everything</h1>
 <p align="center">
   <a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
+  <br /><br />
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/License-BSD_3--Clause-blue.svg" alt="License" />
+  </a>
 </p>
 
-# DSH + Obsidian Learning System — DSH Plugin (code/)
+# Overview
+dsh-learn-everything is a personal knowledge learning plugin running within DSH (DeepSeek Harness). It establishes a closed-loop system for knowledge acquisition and internalization by using DSH as the sole interaction and task entry point, Obsidian as the authoritative knowledge base, KarpathyWiki as the compilation and association layer, and SQLite for isolated learning state management.
 
-This directory is the **complete DSH plugin** of the DSH + Obsidian personal learning system: it controls the Vault
-through the Obsidian **Local REST API with MCP** plugin, drives **karpathywiki** (LLM Wiki) knowledge compilation, and
-provides three business flows - ingest, search, and daily practice. DSH is the single entry point;
-Obsidian is the authoritative store of formal knowledge assets.
+## Core Philosophy
+Rather than pursuing feature quantity, this project prioritizes the reliability of real-world usage paths, the credibility of citations, and the sustainability of learning states. It strictly distinguishes between formal knowledge assets (Obsidian), derived compiled assets (KarpathyWiki), and process-oriented learning data (SQLite). By adhering to minimal necessary complexity, it ensures that the primary knowledge base remains uncontaminated by transient data.
 
-# Usage Scenarios
-![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
-![pratice-1](./detailDoc/screenshots/plugin/use-pratice-1.png)
+## Three Core Capabilities
 
-for more use detils: 
-![detail.md](./detailDoc/config.md)
+Knowledge Ingestion: Safely incorporates user materials into the knowledge system through a verified, two-phase write and compilation process.
+
+Knowledge Retrieval: Performs evidence-based retrieval using KarpathyWiki and raw notes, synthesizing answers with reliable citations via the DSH model.
+
+Learning Practice: Facilitates on-the-fly question generation, answer evaluation, and error correction, while persistently tracking mastery and review schedules via SQLite.
 
 ## Requirements
 
@@ -165,3 +170,11 @@ Required values are also configurable on the plugin config page. Other environme
 - Secrets live only in `.env` (gitignored); runtime state (`.state/`) is not committed either
 - karpathywiki compilation takes about 6 min/source (LLM); the CLI blocks while waiting; timeout/poll/settle are configurable
 - Every write to the formal vault passes a confirmation gate; create-only, never silently overwrites human notes
+
+
+# Usage Scenarios
+![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
+![pratice-1](./detailDoc/screenshots/plugin/use-pratice-1.png)
+
+for more use detils: 
+![detail.md](./detailDoc/config.md)

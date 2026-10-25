@@ -1,19 +1,28 @@
+<h1 align="center" style="font-size: 3em; font-weight: bold;">dsh-learn-everything</h1>
 <p align="center">
   <a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
+  <br /><br />
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/License-BSD_3--Clause-blue.svg" alt="License" />
+  </a>
 </p>
 
-# DSH + Obsidian 学习系统 — DSH 插件（code/）
+# 项目简介
+dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知识学习插件。系统以 DSH 为唯一交互与任务入口，以 Obsidian 作为权威知识资产底座，通过引入 KarpathyWiki 作为知识编译与关联层，并利用 SQLite 独立管理学习状态，构建了一个闭环的个人知识内化与训练体系。
 
-本目录是 DSH + Obsidian 个人学习系统的**完整 DSH 插件**：通过 Obsidian **Local REST API with MCP** 插件受控读写 Vault，
-驱动 **karpathywiki**（LLM Wiki）编译知识，并提供摄入、检索、每日练习三条业务流。DSH 是唯一入口，
-Obsidian 是正式知识资产的权威存储。
+# 项目简介
+dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知识学习插件。系统以 DSH 为唯一交互与任务入口，以 Obsidian 作为权威知识资产底座，通过引入 KarpathyWiki 作为知识编译与关联层，并利用 SQLite 独立管理学习状态，构建了一个闭环的个人知识内化与训练体系。
 
-# 使用场景
-![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
-![pratice-2](./detailDoc/screenshots/plugin/use-pratice-1.png)
+## 核心理念
+本项目不以堆砌功能为目标，而是追求真实使用路径的可靠性、知识引用的可信度以及学习状态的可持续性。系统严格区分正式知识资产（Obsidian）、派生编译资产（KarpathyWiki）与过程性学习数据（SQLite），坚持最小必要复杂度，确保知识库不被过程数据污染。
 
-详细见: 
-![detail.md](./detailDoc/config.md)
+## 三大核心能力
+
+知识摄入 (Ingestion)：提供预检、安全写入与编译驱动流程，将资料安全纳入知识体系。
+
+知识检索 (Retrieval)：基于 KarpathyWiki 与原始笔记进行证据检索，结合 DSH 模型进行答案合成，并提供可信引用。
+
+学习训练 (Practice)：通过即时生成题目、评估作答、纠正错误，利用 SQLite 持久化跟踪掌握度与复习调度。
 
 ## 依赖
 - Obsidian 运行中，打开正式 Vault（learnEverything），启用插件：`obsidian-local-rest-api`（v5.5.2）与 `karpathywiki`（v1.28.0）
@@ -162,3 +171,11 @@ cp .env.example .env   # 可以到源码.env下
 - 密钥只存 `.env`（gitignored）；运行状态（`.state/`）同样不入库
 - karpathywiki 编译耗时约 6 分钟/源（LLM），CLI 会阻塞等待；超时/轮询/settle 均可配置
 - 所有对正式 Vault 的写入都经过确认门禁；只 create，绝不静默覆盖人工笔记
+
+
+# 使用场景
+![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
+![pratice-1](./detailDoc/screenshots/plugin/use-pratice-1.png)
+
+更多详细使用见: 
+![detail.md](./detailDoc/config.md)
