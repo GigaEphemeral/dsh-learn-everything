@@ -10,9 +10,6 @@
 # 项目简介
 dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知识学习插件。系统以 DSH 为唯一交互与任务入口，以 Obsidian 作为权威知识资产底座，通过引入 KarpathyWiki 作为知识编译与关联层，并利用 SQLite 独立管理学习状态，构建了一个闭环的个人知识内化与训练体系。
 
-# 项目简介
-dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知识学习插件。系统以 DSH 为唯一交互与任务入口，以 Obsidian 作为权威知识资产底座，通过引入 KarpathyWiki 作为知识编译与关联层，并利用 SQLite 独立管理学习状态，构建了一个闭环的个人知识内化与训练体系。
-
 ## 核心理念
 本项目不以堆砌功能为目标，而是追求真实使用路径的可靠性、知识引用的可信度以及学习状态的可持续性。系统严格区分正式知识资产（Obsidian）、派生编译资产（KarpathyWiki）与过程性学习数据（SQLite），坚持最小必要复杂度，确保知识库不被过程数据污染。
 
