@@ -4,101 +4,70 @@
 
 # DSH + Obsidian Learning System — DSH Plugin (code/)
 
-The complete **DSH plugin** of the DSH + Obsidian personal learning system. It operates the Obsidian vault through the
-**Local REST API with MCP** plugin, drives **karpathywiki** (LLM Wiki) compilation, and provides three business
-flows: ingest, search, and daily practice. DSH is the single entry point; Obsidian is the authoritative knowledge store.
+This directory is the **complete DSH plugin** of the DSH + Obsidian personal learning system: it controls the Vault
+through the Obsidian **Local REST API with MCP** plugin, drives **karpathywiki** (LLM Wiki) knowledge compilation, and
+provides three business flows - ingest, search, and daily practice. DSH is the single entry point;
+Obsidian is the authoritative store of formal knowledge assets.
 
 ## Requirements
-- Obsidian running with the formal vault (learnEverything) open and these plugins enabled:
-  `obsidian-local-rest-api` (v5.5.2) and `karpathywiki` (v1.28.0)
-- API key: Obsidian → Settings → Local REST API → API key
-- Node.js ≥ 22.6 (v24 on the dev machine)
 
-## Configuration (`code/.env`)
-```bash
-cp .env.example .env   # fill in OBSIDIAN_API_KEY
-```
-
-| Variable | Meaning | Default |
-|---|---|---|
-| OBSIDIAN_API_KEY | Plugin API key (required) | — |
-| OBSIDIAN_BASE_URL | Plugin HTTPS server base URL | https://127.0.0.1:27124 |
-| OBSIDIAN_SCOPE | Restrict the adapter to a vault subfolder (optional) | (empty) |
-| OBSIDIAN_INGEST_TIMEOUT_MS | Max ms to wait for compiled wiki pages after triggering ingest | 900000 (15 min) |
-| OBSIDIAN_INGEST_POLL_INTERVAL_MS | ms between wiki output folder checks | 10000 |
-| OBSIDIAN_INGEST_SETTLE_MS | ms to keep waiting after the first new page appears | 60000 |
-| OBSIDIAN_REVIEW_W_OVERDUE / WEAKNESS / COVERAGE / NOVELTY | Daily practice selection weights | 1.0 / 0.8 / 0.5 / 0.3 |
-| OBSIDIAN_REVIEW_WEAKNESS_WINDOW | Recent attempts used for the weakness score | 3 |
-| OBSIDIAN_LEARNING_DB | SQLite learning database path | `<state dir>/learning.db` |
-| OBSIDIAN_WIKI_DIRS | Wiki folders sampled by the daily-practice node picker | wiki/concepts,wiki/entities,wiki/sources |
-| OBSIDIAN_STATE_DIR | Runtime state dir (ingest registry, attempts, review) | code/.state |
+- Obsidian running with the formal vault (learnEverything) open, plugins enabled: `obsidian-local-rest-api` (v5.5.2) and `karpathywiki` (v1.28.0)
+- API key: Obsidian -> Settings -> Local REST API -> API key
+- Node.js >= 22.6 (v24 on the dev machine)
+- DSH 0.2.1-rc2, started either via web or from source
 
 ## DSH plugin structure
+
 ```
 package.json   # dsh.bundle.patch -> ./cordis.patch.yml
-cordis.patch.yml  # registers this bundle in the DSH profile
-index.js       # registers the skills under skills/ on ctx.skills
-skills/        # packaged skills: remember-knowledge, knowledge-search, daily-practice
+cordis.patch.yml  # registers this plugin in the DSH profile
+index.js       # registers the skills under skills/ into ctx.skills
+skills/        # built-in skills: remember-knowledge, knowledge-search, daily-practice
 ```
 
-## Source layout (split by domain)
+## Source layout (by domain)
+
 ```
 src/
-├── obsidian/     # Vault access: client (HTTPS+timeout), adapter (list/read/create/append/frontmatter/search),
+├── obsidian/     # Vault access layer: client (HTTPS+timeout), adapter (list/read/create/append/frontmatter/search),
 │                 #   vault-path (path validation), mcp-client (MCP JSON-RPC)
-├── wiki/         # karpathywiki driver: open+ingest, snapshot diff, blocking wait (configurable timeout/poll/settle)
-├── ingest/       # Ingest: source-fetch, preflight (duplicate check), planner, pipeline (two confirmation gates,
-│                 #   create-only), registry, task state machine
-├── search/       # Search: intent classifier, wiki-first retriever (stopword stripping, per-term fallback,
-│                 #   meta-file filtering)
-└── learning/     # Learning: question store, append-only attempt store, weighted review scheduler
+├── wiki/         # karpathywiki driver: open+ingest, snapshot diff, blocking wait (timeout/poll/settle configurable)
+├── ingest/       # ingest: source-fetch, preflight (dedup), planner, pipeline (two-stage confirm + create-only), registry, task-state
+├── search/       # search: intent classification, wiki-first retriever (stop-word stripping, token fallback, metadata-file filtering)
+├── sidebar/      # S4 right-sidebar panel: fenced routes proxying Obsidian data (list/search/read/graph/compile-status/test-connection)
+└── learning/     # learning: question-store, attempt-store (append-only), review-scheduler (increasing interval + weighted priority)
 scripts/          # ingest-cli / search-cli / practice-db
 tests/            # node --test unit tests
 ```
 
-## Usage
-```bash
-# Ingest (https URLs or local Markdown; interactive confirmation; --auto-yes for unattended runs)
-node scripts/ingest-cli.mjs <https-url|local.md>
-
-# Search (intent routing: concept exploration / exact-source lookup / structural query / combined)
-node scripts/search-cli.mjs "what is spaced repetition"
-
-# Daily practice (LLM-driven, on-demand; see skills/daily-practice)
-```
-
-
 ## Knowledge assets & Obsidian vault layout
 
-The formal vault is `learnEverything`. Knowledge is split by ownership so DSH writes never pollute human-maintained or plugin-managed content:
+The Obsidian vault is configured in the plugin config page (self-configured repository).
+Assets are split by ownership: DSH writes never pollute human-maintained or plugin-hosted content:
 
-| Directory | Responsibility | Owner | Notes |
+| Directory | Role | Ownership | Notes |
 |---|---|---|---|
-| `Sources/` | **Ingested originals** — every ingested URL/local file lands here as `<slug>.md` (frontmatter: source_uri/source_id/content_hash/fetched_at + the original body) | DSH writes; user reads | create-only, never overwrite |
-| `Learning/MOC` | Human-maintained topic navigation | User (DSH assists) | the only learning dir kept in the vault |
-| `Inbox/` | Pending materials | User | empty |
-| `wiki/` | KarpathyWiki **derived** network: `concepts/ entities/ sources/` + `index.md log.md schema/config.md` | Plugin auto-generates | rebuildable; never treat as original knowledge |
+| `Sources/` | **Ingest originals** - every ingested URL/local file lands here as `<slug>.md` (frontmatter: source_uri/source_id/content_hash/fetched_at + original body) | DSH writes, user reads | create-only, never overwrite |
+| `Inbox/` | Pending material | user | empty |
+| `wiki/` | karpathywiki **derived** knowledge network: `concepts/ entities/ sources/` + `index.md log.md schema/config.md` | auto-generated by the plugin | rebuildable; not to be treated as original knowledge |
 
-Boundaries: `Sources/` = formal knowledge (ingested originals). `wiki/` = derived, rebuildable. **Learning state — Plans/Questions/Reviews (题目/作答/评分/复习调度/掌握度) — lives in SQLite (decision B), never written into vault notes.**
+Boundary: `Sources/` = formal knowledge (ingested originals); `wiki/` = derived, rebuildable;
+**learning state (questions/attempts/ratings/review schedule/mastery) lives in SQLite, never in Vault notes**.
 
 ### Ingest flow (where the original goes)
+
 ```
-URL (https-only) or local .md
-  → normalize (sha256 content_hash, source_id)
-  → preflight (exact hash via code/.state/sources.json registry + wiki/sources slug match)
-  → user confirmation ×2 (scope, write plan)
-  → create-only write → Sources/<slug>.md   ← original text lives here
-  → read-back verify
-  → karpathywiki compile → wiki/ derived pages (traceable via source_file)
-  → registry record (hash → vault path)
+URL (https only) or local .md
+  -> normalize (sha256 content_hash, source_id)
+  -> preflight (code/.state/sources.json registry exact dedup + wiki/sources same-slug similarity dedup)
+  -> user confirmation x2 (scope, write plan)
+  -> create-only write -> Sources/<slug>.md   <- original body stored here
+  -> read-back verification
+  -> karpathywiki compile -> wiki/ derived pages (source_file traceable)
+  -> registry record (hash -> vault path)
 ```
 
-> Note: the REST API lists only non-empty directories; empty folders (Learning/*, Inbox) exist on disk but do not appear in `/vault/` listings.
-
-### Current vault state (2026-10-23)
-- `Sources/dsh-plugin-dev-patterns.md` + `wiki/` pages for it (1 source page, concepts, entities)
-- Leftover artifacts pending cleanup: root `concepts/间隔重复.md` (stray), `_p1-test/` (P1 scratch), `未命名.base` (Obsidian file) — confirm before deleting.
-
+> Note: the REST API only lists non-empty directories; empty folders (Inbox) exist on disk but do not appear in the `/vault/` listing.
 
 ## Build / package / deploy
 
@@ -106,53 +75,80 @@ URL (https-only) or local .md
 npm ci --ignore-scripts          # install (locked); use npm_config_cache=/tmp/npm-cache if the local npm cache is read-only
 npm run build                    # tsc: src/db + src/learning -> lib/
 npm run build:client             # esbuild: the right-sidebar panel bundle -> lib/client.js
-npm test                         # 274 tests, 0 skipped
+npm test                         # 314 tests, 0 skipped
 ```
 
-### Deploy to the test profile (:3081)
-The test profile holds the plugin as a **directory copy** (not a symlink): after changing code/, sync and restart:
+### Package a complete bundle (for release, not a code link)
+
 ```bash
-rsync -a --delete --exclude node_modules --exclude .git --exclude .state --exclude .env \
-  . ~/.dsh/profiles/test/node_modules/dsh-learn-everything/
-cd ~/sourceCodeDSH/deepseek-harness && OBSIDIAN_API_KEY=<key> dsh --profile test --port 3081
+npm pack        # prepack runs build + build:client automatically; output dsh-learn-everything-<version>.tgz
+# Install into DSH as a complete package (no source-link dependency)
+cd ~/sourceCodeDSH/deepseek-harness
+dsh plugin --profile test add file:/home/czq/dsh-learn-everything/code/dsh-learn-everything-0.1.0.tgz
 ```
+
+## Deploy from source to DSH
+
+```bash
+# 1. Cleanup
+#  0) stop the profile first
+#  1) official removal (equals pnpm remove: clears node_modules + lock + package.json deps)
+cd ~/sourceCodeDSH/deepseek-harness
+dsh plugin --profile test remove dsh-learn-everything
+
+#  2) fallback: if an rsync directory copy remains, remove it manually
+rm -rf ~/.dsh/profiles/test/node_modules/dsh-learn-everything
+
+#  3) (optional) clear the plugin settings saved in the profile config (apiKey/baseUrl/vaultName)
+#     edit ~/.dsh/profiles/test/cordis.patch.yml and delete the dsh-learn-everything section
+#     (keeping it is fine: settings are read again after redeploy)
+
+# 2. Deploy (from source, one of two)
+#  Option A - official file: dependency install (recommended for release)
+cd ~/sourceCodeDSH/deepseek-harness
+dsh plugin --profile test add file:/home/xxx/dsh-learn-everything/code
+ls ~/.dsh/profiles/test/node_modules/dsh-learn-everything/index.js   # verify
+#   Note: pnpm copies the source into its store then links. Every code/ change needs a re-add (or rsync).
+
+#  Option B - live source link (most convenient in development)
+#  Replace the installed package with a symlink to the source: changes to code/ apply after restarting 3081
+rm -rf ~/.dsh/profiles/test/node_modules/dsh-learn-everything
+ln -s /home/xxx/dsh-learn-everything/code ~/.dsh/profiles/test/node_modules/dsh-learn-everything
+ls -ld ~/.dsh/profiles/test/node_modules/dsh-learn-everything   # should show dsh-learn-everything -> /home/xxx/...
+#   Note: the next pnpm install may rebuild its own copy over the symlink; redo the ln -s.
+```
+
+## Configuration (`code/.env`)
+
+```bash
+cp .env.example .env   # or read the source .env
+```
+Required values are also configurable on the plugin config page. Other environment variables:
+
+| Variable | Meaning | Default |
+|---|---|---|
+| OBSIDIAN_API_KEY | Plugin API key (required) | — |
+| OBSIDIAN_BASE_URL | Plugin HTTPS server base URL | https://127.0.0.1:27124 |
+| OBSIDIAN_VAULT_NAME | Vault name for obsidian:// deep links | learnEverything |
+| OBSIDIAN_SCOPE | Restrict the adapter to a vault subfolder (optional) | (empty) |
+| OBSIDIAN_INGEST_TIMEOUT_MS | Max ms to wait for compiled wiki pages after triggering ingest | 900000 (15 min) |
+| OBSIDIAN_INGEST_POLL_INTERVAL_MS | ms between wiki output folder checks | 10000 |
+| OBSIDIAN_INGEST_SETTLE_MS | ms to keep waiting after the first new page appears | 60000 |
+| OBSIDIAN_REVIEW_W_OVERDUE / WEAKNESS / COVERAGE / NOVELTY | Daily practice selection weights | 1.0 / 0.8 / 0.5 / 0.3 |
+| OBSIDIAN_REVIEW_WEAKNESS_WINDOW | Recent attempts considered for weakness scoring | 3 |
+| OBSIDIAN_LEARNING_DB | SQLite learning database path | `<state dir>/learning.db` |
+| OBSIDIAN_WIKI_DIRS | wiki dirs used by daily practice for node sampling (comma-separated) | wiki/concepts,wiki/entities,wiki/sources |
+| OBSIDIAN_STATE_DIR | runtime state dir (ingest registry, attempts, review) | code/.state |
 
 ### Obsidian access config (S4 right-sidebar panel)
-- **Plugins page**: DSH -> plugins -> dsh-learn-everything -> apiKey (secret) + baseUrl; saving applies without a restart (volatile config).
-- **Env fallback**: OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL (default https://127.0.0.1:27124).
+
+- **Plugins page**: DSH -> plugins -> dsh-learn-everything -> apiKey (secret) + baseUrl + vaultName; saving applies without a restart (volatile config; **connectivity is tested before saving** - a wrong key is not saved).
+- **Env fallback**: OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL / OBSIDIAN_VAULT_NAME (default https://127.0.0.1:27124 / learnEverything).
 - Precedence: plugin config -> env -> default; unconfigured routes answer 503 obsidian-not-configured instead of 404.
 - The panel is a client half (src/client/index.js) registering an Obsidian tab into DSH's native right sidebar, backed by fenced routes (src/sidebar/routes.js) that proxy the Obsidian REST API; the API key never reaches the browser.
 
-## Self-test
-```bash
-npm test                                  # 29 unit tests (no network)
-OBSIDIAN_API_KEY=... npm run test:live     # live integration (needs running Obsidian)
-```
-
-## Acceptance status (2026-10-23)
-- **P1** MCP access ✅ read/write, search, 412 no-overwrite, path traversal 400, .obsidian 403,
-  frontmatter field preservation, 404
-- **P2** karpathywiki ✅ command-driven ingest (no UI dialog), traceable wiki pages, merge & idempotency,
-  blocking-wait mechanism
-- **P3** Ingest ✅ preflight → two confirmation gates → create-only write → verify → compile → report;
-  end-to-end tested
-- **P4** Search ✅ intent routing + wiki-first + evidence excerpts + meta-file filtering
-- **P5** Learning loop ✅ append-only attempts, doubling review intervals, overdue-first selection
-- 29 unit tests + 2 live integration tests green; every new behavior has a test that fails if reverted (AGENTS.md rule)
-
-## Quick curl checks
-```bash
-KEY=<your-key>; B=https://127.0.0.1:27124
-curl -sk -H "Authorization: Bearer $KEY" $B/                      # server info + auth status
-curl -sk -H "Authorization: Bearer $KEY" $B/vault/                # list vault files
-curl -sk -X PUT -H "Authorization: Bearer $KEY" -H "Content-Type: text/markdown" -H "If-None-Match: *" \
-     --data-binary $'---\ntitle: x\n---\n\nbody' $B/vault/_t/a.md   # create (412 on conflict)
-curl -sk -G -X POST -H "Authorization: Bearer $KEY" --data-urlencode 'query=x' $B/search/simple/  # search
-```
-
 ## Notes
+
 - Secrets live only in `.env` (gitignored); runtime state (`.state/`) is not committed either
-- karpathywiki compilation takes ~6 min per source (LLM); the CLI blocks and waits — timeout/poll/settle
-  are configurable
-- Every write to the formal vault passes a confirmation gate; create-only, never silently overwrite
-  human-maintained notes
+- karpathywiki compilation takes about 6 min/source (LLM); the CLI blocks while waiting; timeout/poll/settle are configurable
+- Every write to the formal vault passes a confirmation gate; create-only, never silently overwrites human notes

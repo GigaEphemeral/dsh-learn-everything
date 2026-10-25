@@ -43,7 +43,6 @@ obsidian Vault 为插件配置页面自配仓库, 自行配置。
 | 目录 | 职责 | 归属 | 说明 |
 |---|---|---|---|
 | `Sources/` | **摄入原文存放处** —— 每次摄入的 URL/本地文件以 `<slug>.md` 落在这里（frontmatter：source_uri/source_id/content_hash/fetched_at + 原文正文） | DSH 写入、用户阅读 | 只 create、绝不覆盖 |
-| `Learning/MOC` | 人工维护的主题导航 | 用户（DSH 辅助） | vault 中保留的唯一学习目录 |
 | `Inbox/` | 待处理材料 | 用户 | 空 |
 | `wiki/` | karpathywiki **派生**知识网：`concepts/ entities/ sources/` + `index.md log.md schema/config.md` | 插件自动生成 | 可重建；不得视为原始知识 |
 
@@ -63,7 +62,7 @@ URL（仅 https）或本地 .md
   → 注册表记录（hash → vault 路径）
 ```
 
-> 说明：REST API 只列出非空目录；空文件夹（Learning/*、Inbox）在磁盘存在但不出现在 `/vault/` 列表。
+> 说明：REST API 只列出非空目录；空文件夹（Inbox）在磁盘存在但不出现在 `/vault/` 列表。
 
 ## 本地构建 / 打包 / 部署
 
@@ -71,11 +70,18 @@ URL（仅 https）或本地 .md
 npm ci --ignore-scripts          # 安装依赖（本机 npm cache 只读时：npm_config_cache=/tmp/npm-cache npm ci）
 npm run build                    # tsc：src/db + src/learning -> lib/
 npm run build:client             # esbuild：右侧栏面板 bundle -> lib/client.js
-npm test                         # 274 测试，0 跳过
+npm test                         # 314 测试，0 跳过
+```
+
+### 打包为完整包（发布用，非 link）
+```bash
+npm pack        # prepack 自动执行 build + build:client，产物 dsh-learn-everything-<version>.tgz
+# 安装到 DSH（完整包安装，不依赖源码链接）
+cd ~/sourceCodeDSH/deepseek-harness
+dsh plugin --profile test add file:/home/czq/dsh-learn-everything/code/dsh-learn-everything-0.1.0.tgz
 ```
 
 ## 本地源码方式部署到dsh
-暂不提供插件包形式安装
 ```bash
 # 1. 清理
 ## 0) 先停止 profile
@@ -132,8 +138,8 @@ cp .env.example .env   # 可以到源码.env下
 | OBSIDIAN_STATE_DIR | 运行状态目录（摄入注册表、作答、复习） | code/.state |
 
 ### Obsidian 访问配置（S4 右侧栏面板）
-- **plugins 页面**：DSH -> 插件 -> dsh-learn-everything -> apiKey（secret）+ baseUrl；保存即生效（volatile 配置，无需重启）。
-- **环境变量兜底**：OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL（默认 https://127.0.0.1:27124）。
+- **plugins 页面**：DSH -> 插件 -> dsh-learn-everything -> apiKey（secret）+ baseUrl + vaultName；保存即生效（volatile 配置，无需重启；**保存前自动测试连接**，错 key 不保存）。
+- **环境变量兜底**：OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL / OBSIDIAN_VAULT_NAME（默认 https://127.0.0.1:27124 / learnEverything）。
 - 优先级：插件配置 -> 环境变量 -> 默认；未配置时接口返回 503 obsidian-not-configured（而非 404）。
 - 面板 = 客户端 half（src/client/index.js）在 DSH 原生右侧栏注册 Obsidian tab，数据经围栏路由（src/sidebar/routes.js）代理 Obsidian REST；API key 不进入浏览器。
 
