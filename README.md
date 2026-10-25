@@ -15,11 +15,20 @@ Rather than pursuing feature quantity, this project prioritizes the reliability 
 
 ## Three Core Capabilities
 
-Knowledge Ingestion: Safely incorporates user materials into the knowledge system through a verified, two-phase write and compilation process.
+**Knowledge Ingestion( /obs-remember-knowledge )**: Safely incorporates user materials into the knowledge system through a verified, two-phase write and compilation process.
 
-Knowledge Retrieval: Performs evidence-based retrieval using KarpathyWiki and raw notes, synthesizing answers with reliable citations via the DSH model.
+**Knowledge Retrieval( /obs-knowledge-search   )**: Performs evidence-based retrieval using KarpathyWiki and raw notes, synthesizing answers with reliable citations via the DSH model.
 
-Learning Practice: Facilitates on-the-fly question generation, answer evaluation, and error correction, while persistently tracking mastery and review schedules via SQLite.
+**Learning Practice( /obs-daily-practice  )**: Facilitates on-the-fly question generation, answer evaluation, and error correction, while persistently tracking mastery and review schedules via SQLite.
+
+# Usage Scenarios
+<p align="center">
+  <img src="./detailDoc/screenshots/plugin/use-remember-2.png" width="45%" />
+  <img src="./detailDoc/screenshots/plugin/use-practice-1.png" width="45%" />
+</p>
+
+For more usage details, please refer to: [config.md](./detailDoc/config.md)
+For design details [flow-ingest-practice.md](./detailDoc/flow-ingest-practice.md)
 
 ## Requirements
 
@@ -171,10 +180,3 @@ Required values are also configurable on the plugin config page. Other environme
 - karpathywiki compilation takes about 6 min/source (LLM); the CLI blocks while waiting; timeout/poll/settle are configurable
 - Every write to the formal vault passes a confirmation gate; create-only, never silently overwrites human notes
 
-
-# Usage Scenarios
-![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
-![pratice-1](./detailDoc/screenshots/plugin/use-pratice-1.png)
-
-for more use detils: 
-![detail.md](./detailDoc/config.md)

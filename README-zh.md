@@ -15,11 +15,21 @@ dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知�
 
 ## 三大核心能力
 
-知识摄入 (Ingestion)：提供预检、安全写入与编译驱动流程，将资料安全纳入知识体系。
+**知识摄入( /obs-remember-knowledge )**：提供预检、安全写入与编译驱动流程，将资料安全纳入知识体系。
 
-知识检索 (Retrieval)：基于 KarpathyWiki 与原始笔记进行证据检索，结合 DSH 模型进行答案合成，并提供可信引用。
+**知识检索 ( /obs-knowledge-search   )**：基于 KarpathyWiki 与原始笔记进行证据检索，结合 DSH 模型进行答案合成，并提供可信引用。
 
-学习训练 (Practice)：通过即时生成题目、评估作答、纠正错误，利用 SQLite 持久化跟踪掌握度与复习调度。
+**学习训练 ( /obs-daily-practice  )**：通过即时生成题目、评估作答、纠正错误，利用 SQLite 持久化跟踪掌握度与复习调度。
+
+# 使用场景
+<p align="center">
+  <img src="./detailDoc/screenshots/plugin/use-remember-2.png" width="45%" />
+  <img src="./detailDoc/screenshots/plugin/use-practice-1.png" width="45%" />
+</p>
+
+更多详细使用见:  [config.md](./detailDoc/config.md)
+功能设计细节: [flow-ingest-practice.md](./detailDoc/flow-ingest-practice.md)
+
 
 ## 依赖
 - Obsidian 运行中，打开正式 Vault（learnEverything），启用插件：`obsidian-local-rest-api`（v5.5.2）与 `karpathywiki`（v1.28.0）
@@ -169,10 +179,3 @@ cp .env.example .env   # 可以到源码.env下
 - karpathywiki 编译耗时约 6 分钟/源（LLM），CLI 会阻塞等待；超时/轮询/settle 均可配置
 - 所有对正式 Vault 的写入都经过确认门禁；只 create，绝不静默覆盖人工笔记
 
-
-# 使用场景
-![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
-![pratice-1](./detailDoc/screenshots/plugin/use-pratice-1.png)
-
-更多详细使用见: 
-![detail.md](./detailDoc/config.md)
