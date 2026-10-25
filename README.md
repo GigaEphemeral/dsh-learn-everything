@@ -9,6 +9,13 @@ through the Obsidian **Local REST API with MCP** plugin, drives **karpathywiki**
 provides three business flows - ingest, search, and daily practice. DSH is the single entry point;
 Obsidian is the authoritative store of formal knowledge assets.
 
+# Usage Scenarios
+![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
+![pratice-2](./detailDoc/screenshots/plugin/use-pratice-2.png)
+
+for more use detils: 
+![detail.md](./detailDoc/config.md)
+
 ## Requirements
 
 - Obsidian running with the formal vault (learnEverything) open, plugins enabled: `obsidian-local-rest-api` (v5.5.2) and `karpathywiki` (v1.28.0)
@@ -81,10 +88,16 @@ npm test                         # 314 tests, 0 skipped
 ### Package a complete bundle (for release, not a code link)
 
 ```bash
+npm install
 npm pack        # prepack runs build + build:client automatically; output dsh-learn-everything-<version>.tgz
 # Install into DSH as a complete package (no source-link dependency)
 cd ~/sourceCodeDSH/deepseek-harness
-dsh plugin --profile test add file:/home/czq/dsh-learn-everything/code/dsh-learn-everything-0.1.0.tgz
+dsh plugin --profile test add file:/<your_abs_path>/dsh-learn-everything-0.1.0.tgz
+```
+
+### uninstall
+```bash
+dsh plugin --profile web remove dsh-learn-everything
 ```
 
 ## Deploy from source to DSH

@@ -23,7 +23,16 @@ c6fcc762959172b45afd262c921a6e9f52e2b8fea6173c46681e317436d71c0d
 ![配置](./screenshots/obsidian/obs-mcp-config2.png)
 
 # dsh安装插件
-``` 进入你自己的dsh源码路径
+![install](./screenshots/plugin/dsh-install.png)
+![config](./screenshots/plugin/dsh-config.png)
+
+# 使用
+摄入
+![rember1](./screenshots/plugin/use-rember.png)
+![rember2](./screenshots/plugin/use-rember-2.png)
+练习
+![pratice-1](./screenshots/plugin/use-pratice-1.png)
+![pratice-2](./screenshots/plugin/use-pratice-2.png)
+![pratice-3](./screenshots/plugin/use-pratice-3.png)
 
 
-```

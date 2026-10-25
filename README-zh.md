@@ -8,6 +8,13 @@
 驱动 **karpathywiki**（LLM Wiki）编译知识，并提供摄入、检索、每日练习三条业务流。DSH 是唯一入口，
 Obsidian 是正式知识资产的权威存储。
 
+# 使用场景
+![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
+![pratice-2](./detailDoc/screenshots/plugin/use-pratice-2.png)
+
+详细见: 
+![detail.md](./detailDoc/config.md)
+
 ## 依赖
 - Obsidian 运行中，打开正式 Vault（learnEverything），启用插件：`obsidian-local-rest-api`（v5.5.2）与 `karpathywiki`（v1.28.0）
 - API key：Obsidian → 设置 → Local REST API → API key
@@ -75,11 +82,19 @@ npm test                         # 314 测试，0 跳过
 
 ### 打包为完整包（发布用，非 link）
 ```bash
+npm install
 npm pack        # prepack 自动执行 build + build:client，产物 dsh-learn-everything-<version>.tgz
 # 安装到 DSH（完整包安装，不依赖源码链接）
 cd ~/sourceCodeDSH/deepseek-harness
-dsh plugin --profile test add file:/home/czq/dsh-learn-everything/code/dsh-learn-everything-0.1.0.tgz
+dsh plugin --profile test add file:/<your_abs_path>/dsh-learn-everything-0.1.0.tgz
 ```
+
+### 卸载
+```
+cd ~/sourceCodeDSH/deepseek-harness
+dsh plugin --profile web remove dsh-learn-everything
+```
+
 
 ## 本地源码方式部署到dsh
 ```bash
