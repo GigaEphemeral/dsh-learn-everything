@@ -10,7 +10,7 @@ Obsidian 是正式知识资产的权威存储。
 
 # 使用场景
 ![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
-![pratice-2](./detailDoc/screenshots/plugin/use-pratice-2.png)
+![pratice-2](./detailDoc/screenshots/plugin/use-pratice-1.png)
 
 详细见: 
 ![detail.md](./detailDoc/config.md)

@@ -11,7 +11,7 @@ Obsidian is the authoritative store of formal knowledge assets.
 
 # Usage Scenarios
 ![rember2](./detailDoc/screenshots/plugin/use-rember-2.png)
-![pratice-2](./detailDoc/screenshots/plugin/use-pratice-2.png)
+![pratice-1](./detailDoc/screenshots/plugin/use-pratice-1.png)
 
 for more use detils: 
 ![detail.md](./detailDoc/config.md)
