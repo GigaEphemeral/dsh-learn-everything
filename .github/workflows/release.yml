@@ -1,0 +1,33 @@
+name: Release Package
+
+on:
+  push:
+    tags:
+      - 'v*' # 只有推送类似 v0.1.0 的 tag 时才触发
+
+permissions:
+  contents: write # 需要写入权限才能创建 Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: pnpm/action-setup@v3
+      with:
+        version: 9
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: 'pnpm'
+
+    - run: pnpm install --frozen-lockfile
+    - run: pnpm pack
+
+    - name: Create Release and Upload Asset
+      uses: softprops/action-gh-release@v2
+      with:
+        files: "*.tgz"
+        generate_release_notes: true # 自动生成更新日志
