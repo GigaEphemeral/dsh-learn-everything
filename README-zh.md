@@ -23,8 +23,8 @@ dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知�
 
 # 使用场景
 <p align="center">
-  <img src="./detailDoc/screenshots/plugin/use-remember-2.png" width="45%" />
-  <img src="./detailDoc/screenshots/plugin/use-practice-1.png" width="45%" />
+  <img src="./detailDoc/screenshots/plugin/use-rember-2.png" width="45%" alt="Remember Knowledge" />
+  <img src="./detailDoc/screenshots/plugin/use-pratice-1.png" width="45%" alt="Daily Practice" />
 </p>
 
 更多详细使用见:  [config.md](./detailDoc/config.md)

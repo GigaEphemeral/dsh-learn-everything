@@ -23,8 +23,8 @@ Rather than pursuing feature quantity, this project prioritizes the reliability 
 
 # Usage Scenarios
 <p align="center">
-  <img src="./detailDoc/screenshots/plugin/use-remember-2.png" width="45%" />
-  <img src="./detailDoc/screenshots/plugin/use-practice-1.png" width="45%" />
+  <img src="./detailDoc/screenshots/plugin/use-rember-2.png" width="45%" alt="Remember Knowledge" />
+  <img src="./detailDoc/screenshots/plugin/use-pratice-1.png" width="45%" alt="Daily Practice" />
 </p>
 
 For more usage details, please refer to: [config.md](./detailDoc/config.md)
