@@ -51,6 +51,22 @@ test("record question/answer/status execute host-side against a temp DB", async 
   }
 });
 
+test("practice tools are registry-ready and reject incomplete calls", async () => {
+  const ctx = fakeCtx();
+  registerPracticeTools(ctx, { getConfig: () => ({}) });
+  for (const tool of ctx.registered) {
+    assert.equal(typeof tool.output.render, "function", `${tool.name} must render`);
+    assert.equal(tool.parameters.type, "object", `${tool.name} must expose a JSON-Schema object`);
+    assert.deepEqual(tool.output.render({}, { ok: true }), [{ type: "text", text: '{"ok":true}' }]);
+  }
+  const record = ctx.registered.find((tool) => tool.name === "practice_record_question");
+  await assert.rejects(() => record.execute({ questionId: "q1" }), /missing required argument "version"/);
+  const answer = ctx.registered.find((tool) => tool.name === "practice_record_answer");
+  await assert.rejects(
+    () => answer.execute({ questionId: "q1", questionVersion: 1, result: "correct", correct: true, phase: "bogus" }),
+    /invalid argument "phase"/);
+});
+
 test("draw tool refuses without an API key (no network attempted)", async () => {
   const ctx = fakeCtx();
   registerPracticeTools(ctx, { getConfig: () => ({ apiKey: '' }) });

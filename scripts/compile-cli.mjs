@@ -12,10 +12,10 @@
 // rate-limited, cool down); 1 usage/operational error.
 
 import { pathToFileURL } from "node:url";
-import { ObsidianClient, ObsidianAdapter, ObsidianError } from "../src/obsidian/obsidian-adapter.js";
+import { ObsidianClient, ObsidianAdapter } from "../src/obsidian/obsidian-adapter.js";
 import { McpClient } from "../src/obsidian/mcp-client.js";
 import { KarpathyDriver, WikiIngestTimeoutError } from "../src/wiki/karpathy-driver.js";
-import { appendCompileEvent, readCompileStatus } from "../src/obsidian/compile-status.js";
+import { readCompileStatus } from "../src/obsidian/compile-status.js";
 import { resolveStateDir } from "../src/ingest/state-dir.js";
 import { join } from "node:path";
 
@@ -28,51 +28,13 @@ function statusFile() {
     ?? join(resolveStateDir(import.meta.url), "compile-status.json");
 }
 
-// Status bookkeeping must never turn a successful compile into an error.
-export async function recordCompileEvent(filePath, event) {
-  try {
-    await appendCompileEvent(filePath, event);
-  } catch (err) {
-    console.warn(`compile-cli: could not record ${event.stage} status: ${errorMessage(err)}`);
-  }
-}
+// Compile bookkeeping lives in src/wiki/compile-queue.js so the native
+// obs_compile tool and this CLI share one implementation. Re-exported here for
+// the existing unit tests.
+export { isCompiled, pendingSources, recordCompileEvent } from "../src/wiki/compile-queue.js";
 
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
-}
-
-// A source note is compiled when a wiki/sources page exists whose name equals
-// the slug or appends KarpathyWiki's hash suffix. The suffix must look like a
-// hash: slugs may legally contain "_" (e.g. foo_bar), so a bare prefix match
-// would hide the uncompiled foo when only foo_bar was compiled.
-const COMPILED_SUFFIX = /^[0-9a-f]{6,}$/i;
-const isMarkdown = (file) => /\.md$/i.test(file);
-const withoutExtension = (file) => file.replace(/\.md$/i, "");
-
-function isCompiled(slug, wikiName) {
-  if (wikiName === slug) return true;
-  if (!wikiName.startsWith(slug + "_")) return false;
-  return COMPILED_SUFFIX.test(wikiName.slice(slug.length + 1));
-}
-
-export async function pendingSources(adapter, sourcesDir = "Sources", wikiSourcesDir = "wiki/sources") {
-  const list = async (dir) => {
-    try {
-      const { files } = await adapter.list(dir);
-      return files ?? [];
-    } catch (err) {
-      if (err instanceof ObsidianError && err.status === 404) return [];
-      throw err;
-    }
-  };
-  const [sources, wikiPages] = await Promise.all([list(sourcesDir), list(wikiSourcesDir)]);
-  const wikiNames = wikiPages.filter(isMarkdown).map(withoutExtension);
-  // Emit full source paths so the pending list chains directly into the compile
-  // mode (which takes Sources/xxx.md), instead of bare slugs.
-  return sources
-    .filter(isMarkdown)
-    .filter((file) => !wikiNames.some((wikiName) => isCompiled(withoutExtension(file), wikiName)))
-    .map((file) => `${sourcesDir}/${file}`);
 }
 
 async function main() {

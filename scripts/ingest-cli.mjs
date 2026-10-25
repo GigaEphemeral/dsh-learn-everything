@@ -7,12 +7,13 @@
 //   OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <https-url>
 //   OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <local-markdown-path>
 //   OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <local-markdown-path> --auto-yes
-//   --compile          also trigger karpathywiki compile after writing (default off)
+//   --dir <Sources/sub>  file the note under a nested directory (created implicitly)
+//   --compile            also trigger karpathywiki compile after writing (default off)
 //
 // Exit codes: 0 completed, 1 usage/operational error, 2 pipeline ended without
 // completing (cancelled or needs_review).
 
-import { basename, join, resolve } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ObsidianClient, ObsidianAdapter } from "../src/obsidian/obsidian-adapter.js";
 import { McpClient } from "../src/obsidian/mcp-client.js";
@@ -21,27 +22,14 @@ import { SourceRegistry } from "../src/ingest/registry.js";
 import { resolveStateDir } from "../src/ingest/state-dir.js";
 import { IngestPipeline } from "../src/ingest/pipeline.js";
 import { IngestTask } from "../src/ingest/task-state.js";
-import { fetchUrl, readLocalFile, normalizeSource } from "../src/ingest/source-fetch.js";
+import { acquireSource } from "../src/ingest/source-acquire.js";
+import { assertTargetDir } from "../src/ingest/target-dir.js";
 
 const BASE_URL = process.env.OBSIDIAN_BASE_URL ?? "https://127.0.0.1:27124";
-const USAGE = "usage: OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <url|local-md> [--auto-yes] [--compile]";
+const USAGE = "usage: OBSIDIAN_API_KEY=... node scripts/ingest-cli.mjs <url|local-md> [--dir <Sources/sub>] [--auto-yes] [--compile]";
 
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
-}
-
-// Load a source from a URL or a local Markdown file. Local files get a proper
-// file:// URI (relative paths and Windows separators included) so the registry
-// stores a stable, resolvable source identity.
-async function acquire(target) {
-  if (/^https?:\/\//.test(target)) {
-    // HTML pages carry a real <title>; use it instead of the first Markdown line.
-    const { markdown, title } = await fetchUrl(target, { withMetadata: true });
-    return normalizeSource({ sourceUri: target, title: title ?? undefined, content: markdown });
-  }
-  const content = await readLocalFile(target);
-  const title = basename(target).replace(/\.md$/i, "");
-  return normalizeSource({ sourceUri: pathToFileURL(resolve(target)).href, title, content });
 }
 
 // Build the confirmation callback used by the pipeline. Prompted on stdin
@@ -95,15 +83,32 @@ export function createConfirm({
   };
 }
 
+// Split positional and flag arguments. --dir takes the next argument as its
+// value, so a directory is never mistaken for the source target.
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  const dirIndex = args.indexOf("--dir");
+  const dir = dirIndex === -1 ? undefined : args[dirIndex + 1];
+  if (dirIndex !== -1 && (dir === undefined || dir.startsWith("--"))) {
+    throw new Error("--dir requires a directory value");
+  }
+  return {
+    target: args.find((arg) => !arg.startsWith("--") && arg !== dir),
+    dir: dir === undefined ? undefined : assertTargetDir(dir),
+    autoYes: args.includes("--auto-yes"),
+    compile: args.includes("--compile"),
+  };
+}
+
 async function main() {
   const apiKey = process.env.OBSIDIAN_API_KEY;
-  const target = process.argv[2];
+  const { target, dir, autoYes, compile } = parseArgs(process.argv);
   if (!apiKey || !target) {
     console.error(USAGE);
     process.exitCode = 1;
     return;
   }
-  const confirm = createConfirm({ autoYes: process.argv.includes("--auto-yes") });
+  const confirm = createConfirm({ autoYes });
 
   const client = new ObsidianClient({ baseUrl: BASE_URL, apiKey });
   const adapter = new ObsidianAdapter(client);
@@ -111,28 +116,29 @@ async function main() {
   // Compile is opt-in (S3 T3): the default is to store the source safely and
   // let the user trigger a possibly slow, rate-limit-prone compile later via
   // compile-cli.mjs.
-  const driver = process.argv.includes("--compile") ? new KarpathyDriver({ adapter, mcp }) : null;
+  const driver = compile ? new KarpathyDriver({ adapter, mcp }) : null;
   const registry = await new SourceRegistry({
     filePath: join(resolveStateDir(import.meta.url), "sources.json"),
   }).load();
 
-  const source = await acquire(target);
+  const source = await acquireSource(target);
   console.log(
     "source:",
     JSON.stringify(
-      { title: source.title, uri: source.sourceUri, hash: source.contentHash.slice(0, 16) },
+      { title: source.title, uri: source.sourceUri, hash: source.contentHash.slice(0, 16), dir: dir ?? "Sources" },
       null,
       2,
     ),
   );
 
   const task = new IngestTask({ taskId: `ingest-${Date.now()}`, source });
-  const pipeline = new IngestPipeline({ adapter, registry, driver, task });
+  const pipeline = new IngestPipeline({ adapter, registry, driver, task, targetDir: dir });
   const report = await pipeline.run({ source, confirm });
   console.log("\nreport:", JSON.stringify(report, null, 2));
   if (!driver && report.status === "completed" && report.plan) {
-    // Use the real written path so the hint is directly copy-pasteable.
-    console.log(`hint: source stored without karpathywiki compile. To compile later:\n  node scripts/compile-cli.mjs ${report.plan.targetPath}   (or \`node scripts/compile-cli.mjs pending\` to list untranslated sources)`);
+    // Use the real written path so the hint is directly copy-pasteable, and
+    // name the native tool first: it needs no shell or .env file on any OS.
+    console.log(`hint: source stored without karpathywiki compile. Compile later with the obs_compile tool (action "trigger", path "${report.plan.targetPath}") or:\n  node scripts/compile-cli.mjs ${report.plan.targetPath}`);
   }
   // process.exitCode (not process.exit) so pending stdout writes are flushed
   // before the process exits.

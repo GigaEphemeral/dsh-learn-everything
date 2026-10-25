@@ -2,10 +2,14 @@
 // malformed skills, detect duplicate names, and expose the packaged skills.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { apply, loadSkillsCached, loadSkillsFrom, name as pluginName } from "../index.js";
+
+const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PACKAGED_SKILLS = ["obs-access", "obs-daily-practice", "obs-knowledge-search", "obs-remember-knowledge"];
 
 const VALID_SKILL = `---
 name: valid-one
@@ -42,13 +46,54 @@ test("apply registers a provider that lists the packaged skills", async () => {
   const provider = providers[0]();
   assert.equal(provider.name, pluginName);
   const listed = await provider.list();
-  assert.deepEqual(listed.map((skill) => skill.name), ["daily-practice", "knowledge-search", "obsidian-access", "remember-knowledge"]);
+  assert.deepEqual(listed.map((skill) => skill.name), PACKAGED_SKILLS);
   assert.ok(listed.every((skill) => typeof skill.description === "string" && skill.description.length > 0));
   assert.ok(listed.every((skill) => skill.content === undefined));
-  const definition = await provider.get({ name: "knowledge-search" });
-  assert.equal(definition.name, "knowledge-search");
+  const definition = await provider.get({ name: "obs-knowledge-search" });
+  assert.equal(definition.name, "obs-knowledge-search");
   assert.match(definition.content, /知识检索/);
+  // Skills resolve their relative paths against the plugin package root, not
+  // their own folder: the host turns this path into the resource hint the model
+  // reads, and a per-skill hint sends agents hunting a repository checkout.
+  assert.deepEqual(definition.resourceBase, { kind: "directory", path: PLUGIN_ROOT });
   assert.equal(await provider.get({ name: "missing-skill" }), undefined);
+});
+
+test("apply registers every native tool when the host exposes tools", async () => {
+  const providers = [];
+  const registered = [];
+  apply({
+    skills: { registerProvider: (factory) => providers.push(factory) },
+    tools: { register: (tool) => { registered.push(tool); return () => {}; } },
+  });
+  assert.deepEqual(registered.map((tool) => tool.name), [
+    "practice_draw_node", "practice_record_question", "practice_record_answer", "practice_status",
+    "obs_ingest", "obs_vault", "obs_compile",
+  ]);
+  for (const tool of registered) {
+    assert.equal(typeof tool.output.render, "function", `${tool.name} must render its value`);
+    assert.equal(typeof tool.execute, "function", `${tool.name} must execute host-side`);
+    assert.equal(tool.parameters.type, "object", `${tool.name} exposes a JSON-Schema object`);
+  }
+});
+
+test("packaged skills use native tools instead of shell commands", async () => {
+  const bodies = Object.fromEntries(await Promise.all(PACKAGED_SKILLS.map(async (name) => [
+    name, await readFile(join(PLUGIN_ROOT, "skills", name, "SKILL.md"), "utf8"),
+  ])));
+  for (const [name, raw] of Object.entries(bodies)) {
+    // A shell command in a skill is what broke on Windows (wrong drive path,
+    // missing .env). The skills must name tools only.
+    assert.doesNotMatch(raw, /node\s+scripts\//, `${name} must not run CLI scripts`);
+    assert.doesNotMatch(raw, /--env-file/, `${name} must not depend on an .env file`);
+    assert.doesNotMatch(raw, /\bcd\s+["']?[A-Za-z]:?[\\/]/, `${name} must not cd into an OS-specific path`);
+    assert.doesNotMatch(raw, /\bcode\//, `${name} must not reference checkout-internal paths`);
+  }
+  assert.match(bodies["obs-remember-knowledge"], /obs_ingest/, "ingest must use the native ingest tool");
+  assert.match(bodies["obs-remember-knowledge"], /obs_compile/, "ingest must name the native compile tool");
+  assert.match(bodies["obs-knowledge-search"], /obs_vault/, "search must use the native vault tool");
+  assert.match(bodies["obs-access"], /obs_compile/, "access must use the native compile tool");
+  assert.match(bodies["obs-daily-practice"], /practice_draw_node/, "daily-practice must use the native draw tool");
 });
 
 test("loadSkillsFrom skips missing or unreadable SKILL.md files with warnings (F1)", async () => {

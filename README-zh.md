@@ -19,7 +19,7 @@ Obsidian 是正式知识资产的权威存储。
 package.json   # dsh.bundle.patch -> ./cordis.patch.yml
 cordis.patch.yml  # 在 DSH profile 中注册本插件
 index.js       # 把 skills/ 下的技能注册到 ctx.skills
-skills/        # 内置技能：remember-knowledge、knowledge-search、daily-practice
+skills/        # 内置技能：obs-remember-knowledge、obs-knowledge-search、obs-daily-practice、obs-access
 ```
 
 ## 源码结构（按领域分包）

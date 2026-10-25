@@ -1,19 +1,24 @@
 /**
  * dsh-learn-everything bundle entry: registers the packaged skills under
- * `skills/<name>/SKILL.md` on `ctx.skills`, so every session sees the
- * learning-system skills (remember-knowledge / knowledge-search /
- * daily-practice) in its skill catalog. Frontmatter is parsed with the
- * `yaml` library, matching the official skill providers.
+ * `skills/<name>/SKILL.md` on `ctx.skills` (obs-remember-knowledge /
+ * obs-knowledge-search / obs-daily-practice / obs-access) and the native tools
+ * on `ctx.tools` (ingest / compile / vault / practice), so every session can
+ * run the learning workflows without shell commands, a repository checkout or
+ * an .env file on any OS. Frontmatter is parsed with the `yaml` library,
+ * matching the official skill providers.
  * @module dsh-learn-everything
  */
 
 import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
 import { resolveStateDir } from './src/ingest/state-dir.js'
 import { DEFAULT_BASE_URL, registerObsidianRoutes } from './src/sidebar/routes.js'
+import { registerPracticeTools } from './src/tools/practice-tools.js'
+import { registerIngestTools } from './src/tools/ingest-tools.js'
+import { registerVaultTools } from './src/tools/vault-tools.js'
 
 /** Same rank as packaged dsh skill providers (BUNDLED_SKILL_RANK). */
 const BUNDLED_SKILL_RANK = 600
@@ -22,7 +27,7 @@ const PROVIDER_NAME = 'dsh-learn-everything'
 const SKILLS_ROOT = fileURLToPath(new URL('./skills/', import.meta.url))
 
 export const name = 'dsh-learn-everything'
-export const inject = ['skills']
+export const inject = ['skills', 'tools']
 
 // Plugin config shown in the DSH plugins page (SettingsForms derives the form
 // from this schema). Every user preference MUST be volatile: the settings form
@@ -36,6 +41,8 @@ export const Config = z.object({
     .description('Obsidian Local REST API base URL. Leave empty to use OBSIDIAN_BASE_URL or the default.'),
   vaultName: z.string().default('learnEverything').volatile()
     .description('Obsidian vault name used for obsidian:// deep links. Leave empty to use OBSIDIAN_VAULT_NAME or the default.'),
+  ingest: z.boolean().default(true).volatile()
+    .description('Allow writing new sources into the vault (obs-remember-knowledge / obs_ingest). Turn off to keep ingest read-only.'),
 })
 
 // Volatile config fields arrive as `Volatile<T>` references (schemastery wraps
@@ -53,17 +60,33 @@ export function readConfigString(value, fallback = '') {
 // Effective Obsidian access config: plugin Config (plugins page) first, env
 // fallback. Re-evaluated per request so a volatile settings write takes effect
 // without restarting the host.
+export function readConfigBoolean(value, fallback = true) {
+  if (typeof value === 'boolean') return value
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+    const current = value.get()
+    if (typeof current === 'boolean') return current
+  }
+  return fallback
+}
+
+// Effective Obsidian access config: plugin Config (plugins page) first, env
+// fallback. Re-evaluated per request so a volatile settings write takes effect
+// without restarting the host.
 export function resolveObsidianConfig(config) {
   const apiKey = (readConfigString(config?.apiKey) || process.env.OBSIDIAN_API_KEY || '').trim()
   const baseUrl = (readConfigString(config?.baseUrl) || process.env.OBSIDIAN_BASE_URL || DEFAULT_BASE_URL).trim()
   const compileStatusFile = (process.env.OBSIDIAN_COMPILE_STATUS?.trim()
     || join(resolveStateDir(import.meta.url), 'compile-status.json'))
   const vaultName = (readConfigString(config?.vaultName) || process.env.OBSIDIAN_VAULT_NAME || 'learnEverything').trim()
-  return { apiKey, baseUrl, compileStatusFile, vaultName }
+  const ingest = readConfigBoolean(config?.ingest, true)
+  return { apiKey, baseUrl, compileStatusFile, vaultName, ingest }
 }
 
 export function apply(ctx, config) {
   const initial = resolveObsidianConfig(config)
+  const getConfig = () => resolveObsidianConfig(config)
+
+  registerNativeTools(ctx, getConfig)
   // Routes are registered even when no key is configured: each data route then
   // answers 503 obsidian-not-configured instead of a confusing 404, and the
   // panel can tell the user to fill the settings form. The data layer resolves
@@ -71,9 +94,7 @@ export function apply(ctx, config) {
   if (typeof ctx.inject === 'function') {
     ctx.inject(['webServer'], (injected) => {
       try {
-        const disposers = registerObsidianRoutes(injected, {
-          getConfig: () => resolveObsidianConfig(config),
-        })
+        const disposers = registerObsidianRoutes(injected, { getConfig })
         console.log('[dsh-learn-everything] obsidian panel routes registered:', disposers.length,
           initial.apiKey ? '(configured)' : '(awaiting apiKey in plugin settings or OBSIDIAN_API_KEY)')
       } catch (err) {
@@ -141,6 +162,23 @@ function catalogIndex(skills) {
   return index
 }
 
+// Register every native tool group. The host owns the writes and vault
+// calls, so a skill never has to build an OS-specific shell command. One
+// failing group is reported and skipped so it cannot take the catalog down.
+const TOOL_GROUPS = [registerPracticeTools, registerIngestTools, registerVaultTools]
+
+function registerNativeTools(ctx, getConfig) {
+  let count = 0
+  for (const register of TOOL_GROUPS) {
+    try {
+      count += register(ctx, { getConfig }).length
+    } catch (error) {
+      console.warn('[dsh-learn-everything] a native tool group was not registered:', error?.message || error)
+    }
+  }
+  if (count > 0) console.log('[dsh-learn-everything] native tools registered:', count)
+}
+
 // Exported for tests and for callers that need a catalog from another root.
 // The plugin itself always loads the packaged SKILLS_ROOT.
 export async function loadSkillsFrom(root, signal) {
@@ -148,6 +186,11 @@ export async function loadSkillsFrom(root, signal) {
   const entries = (await readdir(root, { withFileTypes: true, signal })).sort((left, right) =>
     left.name.localeCompare(right.name),
   )
+  // Skills resolve their relative paths (scripts/, .env, state/) against the
+  // plugin package root, which is the parent of the packaged skills/ directory.
+  // Pointing the host's resource hint at the skill's own folder made agents
+  // search the repository checkout for scripts that never lived there.
+  const resourceBase = dirname(root)
   const skills = []
   const byName = new Map()
   for (const entry of entries) {
@@ -167,7 +210,7 @@ export async function loadSkillsFrom(root, signal) {
       }
       throw error
     }
-    const parsed = parseSkill(raw, directory, skillFile)
+    const parsed = parseSkill(raw, directory, skillFile, resourceBase)
     if (parsed === undefined) continue
     const duplicate = byName.get(parsed.name)
     if (duplicate !== undefined) {
@@ -188,7 +231,7 @@ function warnSkippedSkill(skillFile, reason) {
 // Malformed skills are skipped with a warning instead of aborting the whole
 // catalog: missing/invalid frontmatter, missing name or description, and
 // invalid skill names all follow the same policy (F2).
-function parseSkill(raw, directory, skillFile) {
+function parseSkill(raw, directory, skillFile, resourceBase = dirname(directory)) {
   const parsed = parseFrontmatter(raw)
   if (parsed === undefined) {
     warnSkippedSkill(skillFile, 'missing or invalid frontmatter')
@@ -215,7 +258,7 @@ function parseSkill(raw, directory, skillFile) {
     },
     provider: PROVIDER_NAME,
     source: 'bundled',
-    resourceBase: { kind: 'directory', path: directory },
+    resourceBase: { kind: 'directory', path: resourceBase },
     rank: BUNDLED_SKILL_RANK,
     locator: skillFile,
     path: skillFile,

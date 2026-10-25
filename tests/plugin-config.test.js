@@ -56,3 +56,22 @@ test('resolveObsidianConfig prefers plugin config over the environment', () => {
     else process.env.OBSIDIAN_BASE_URL = prevUrl;
   }
 });
+
+test('ingest switch is a volatile boolean that defaults to allow', () => {
+  // The Plugins page only projects volatile fields, and the ingest tool reads
+  // this switch to decide whether a write is allowed.
+  assert.equal(Config.dict.ingest.meta.volatile, true);
+  assert.equal(Config.dict.ingest.meta.default, true);
+  const parsed = Config({});
+  assert.equal(typeof parsed.ingest.get, 'function');
+  assert.equal(parsed.ingest.get(), true);
+});
+
+test('resolveObsidianConfig reads the ingest switch from the settings document', () => {
+  assert.equal(resolveObsidianConfig({}).ingest, true);
+  assert.equal(resolveObsidianConfig({ ingest: true }).ingest, true);
+  assert.equal(resolveObsidianConfig({ ingest: false }).ingest, false);
+  assert.equal(resolveObsidianConfig({ ingest: { get: () => false } }).ingest, false);
+  assert.equal(resolveObsidianConfig({ ingest: { get: () => true } }).ingest, true);
+});
+

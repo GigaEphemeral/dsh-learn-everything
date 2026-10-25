@@ -5,7 +5,7 @@
 // landed and re-tests the saved values to prove they took effect.
 
 import { createElement, useState } from 'react'
-import { SettingsForm, SettingsSecretField, SettingsValueField } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SettingsForm, SettingsSecretField, SettingsValueField, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formLabels } from './config-locales.js'
 import { isHttpUrl, missingRequiredConfig } from './config-page.js'
 
@@ -36,6 +36,7 @@ export function ObsidianConfigCard(props) {
   const keyText = String(state.apiKey?.text ?? '').trim()
   const urlText = String(state.baseUrl?.text ?? '').trim()
   const vaultText = String(state.vaultName?.text ?? '').trim()
+  const ingestOn = String(state.ingest?.text ?? 'true') !== 'false'
 
   // A secret already configured may stay blank ("keep current"); a fresh
   // install requires all three values.
@@ -79,6 +80,7 @@ export function ObsidianConfigCard(props) {
       }
       const config = await getJson(apiUrl('/obsidian/api/config'))
       const valuesLanded = config.baseUrl === urlText && config.vaultName === vaultText
+        && config.ingest === ingestOn
       if (!valuesLanded || !config.apiKeyConfigured) {
         setTestError(t('verifyFailed'))
         return
@@ -133,6 +135,18 @@ export function ObsidianConfigCard(props) {
       onEdit: (text) => { setTestError(null); setNotice(null); props.edit('vaultName', text) },
       onReset: () => { props.resetField('vaultName') },
     }),
+    createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12 } },
+      createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
+        createElement('div', { style: { fontSize: 13 } }, t('ingest')),
+        createElement('div', { style: { fontSize: 11, opacity: 0.7 } }, t('ingestHint')),
+      ),
+      createElement(Switch, {
+        checked: ingestOn,
+        label: t('ingest'),
+        disabled,
+        onChange: (next) => { setTestError(null); setNotice(null); props.edit('ingest', next ? 'true' : 'false') },
+      }),
+    ),
     testError && createElement('div', { role: 'status', style: { color: '#ff6b6b', fontSize: 12, marginTop: 6 } }, testError),
     notice && createElement('div', { role: 'status', style: { color: '#7bd88f', fontSize: 12, marginTop: 6 } }, notice),
   )

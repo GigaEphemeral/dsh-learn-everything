@@ -257,7 +257,18 @@ test("config route returns non-secret values and hides the apiKey", async () => 
   assert.equal(value.vaultName, "learnEverything");
   assert.equal(value.baseUrl, "https://vault.example");
   assert.equal(value.apiKeyConfigured, true);
+  assert.equal(value.ingest, true, "ingest defaults to allowed when the document carries nothing");
   assert.equal(res.body.includes("secret-key"), false);
+});
+
+test("config route reports the saved ingest switch so the card can verify a save", async () => {
+  const h = makeRouteHandlers(fakeData(), {
+    getConfig: () => ({ vaultName: "learnEverything", baseUrl: "https://vault.example", apiKey: "k", ingest: false }),
+  });
+  const res = fakeRes();
+  await h.config(fakeReq("/obsidian/api/config"), res);
+  const value = JSON.parse(res.body).value;
+  assert.equal(value.ingest, false);
 });
 
 test("test-connection proves authentication through an authenticated vault read", async () => {

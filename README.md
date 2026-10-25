@@ -22,7 +22,7 @@ Obsidian is the authoritative store of formal knowledge assets.
 package.json   # dsh.bundle.patch -> ./cordis.patch.yml
 cordis.patch.yml  # registers this plugin in the DSH profile
 index.js       # registers the skills under skills/ into ctx.skills
-skills/        # built-in skills: remember-knowledge, knowledge-search, daily-practice
+skills/        # built-in skills: obs-remember-knowledge, obs-knowledge-search, obs-daily-practice, obs-access
 ```
 
 ## Source layout (by domain)

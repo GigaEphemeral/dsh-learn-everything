@@ -216,8 +216,10 @@ export function makeRouteHandlers(source, { getConfig, createData = createObsidi
     const vaultName = (typeof config.vaultName === "string" && config.vaultName.trim()) || "learnEverything";
     const baseUrl = (typeof config.baseUrl === "string" && config.baseUrl.trim()) || DEFAULT_BASE_URL;
     // Non-secret values are readable so the card can verify a save landed;
-    // the key is reported only as configured/unconfigured.
-    writeJson(res, 200, { ok: true, value: { vaultName, baseUrl, apiKeyConfigured: Boolean(config.apiKey) } });
+    // the key is reported only as configured/unconfigured. The ingest switch
+    // defaults to true when the stored document carries nothing.
+    const ingest = config.ingest !== false;
+    writeJson(res, 200, { ok: true, value: { vaultName, baseUrl, ingest, apiKeyConfigured: Boolean(config.apiKey) } });
   };
 
   // Test whether the configured URL + API key can reach Obsidian.

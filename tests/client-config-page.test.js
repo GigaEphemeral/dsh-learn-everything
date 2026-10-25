@@ -50,6 +50,18 @@ test("all three first-time values are required; a stored key may stay blank", ()
   assert.deepEqual(missingRequiredConfig({ apiKeyConfigured: false, apiKeyText: "  ", baseUrlText: " ", vaultNameText: "v" }), ["apiKey", "baseUrl"]);
 });
 
+test("the config card stages the ingest switch through the settings form", async () => {
+  const card = await readFile(new URL('../src/client/ObsidianConfigCard.js', import.meta.url), 'utf8');
+  assert.match(card, /Switch/);
+  assert.match(card, /props\.edit\('ingest'/);
+  assert.match(card, /config\.ingest === ingestOn/);
+  const form = await readFile(new URL('../src/client/obsidian-config-form.js', import.meta.url), 'utf8');
+  assert.match(form, /field: 'ingest'/);
+  assert.match(form, /form\.field\('ingest'\)/);
+  const locales = await readFile(new URL('../src/client/config-locales.js', import.meta.url), 'utf8');
+  assert.match(locales, /ingest: '/, 'zh and en dictionaries name the switch');
+});
+
 test("the API address must be a valid http(s) URL", () => {
   assert.equal(isHttpUrl("https://127.0.0.1:27124"), true);
   assert.equal(isHttpUrl("http://localhost:27123/"), true);
