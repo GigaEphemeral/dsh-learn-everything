@@ -11,7 +11,14 @@
       "apiVersion": "v1alpha1"
     }
   },
-  "requires": { "contracts": [] },
+  "requires": {
+    "contracts": [
+      {
+        "apiVersion": "tools.dsh/v1alpha1",
+        "kind": "Tool"
+      }
+    ]
+  },
   "permissions": [],
   "contributes": {
     "x-display": [
