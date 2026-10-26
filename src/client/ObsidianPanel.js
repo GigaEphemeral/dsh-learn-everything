@@ -3,10 +3,13 @@
 // backend; the API key never reaches the browser. Notes render Markdown and
 // scroll inside the pane; the graph iframe fetches its own data so the huge
 // graph JSON never rides a request URL (which used to trigger HTTP 431).
+// Every color goes through the host --dsw-alias-* tokens so the panel follows
+// the DSH light/dark theme instead of painting dark colors on a light page.
 
 import { createElement, useState, useEffect } from 'react'
 import { routeErrorText } from '../sidebar/route-errors.js'
 import { renderMarkdown } from '../markdown/render.js'
+import { isDarkDocument, graphPageTheme } from './theme.js'
 
 const DIRS = ['wiki/concepts', 'wiki/entities', 'wiki/sources', 'Sources']
 
@@ -17,28 +20,30 @@ function openInObsidian(path) {
 }
 
 // Preview typography. The panel runs inside the host page, so the rules are
-// scoped to the preview class instead of restyling the page.
+// scoped to the preview class instead of restyling the page. Colors are host
+// tokens, never fixed literals.
 const MD_STYLE = `
-.dsh-obsidian-md{color:#d7d7d7;font-size:13px;line-height:1.62;word-break:break-word}
+.dsh-obsidian-md{color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.62;word-break:break-word}
 .dsh-obsidian-md h1,.dsh-obsidian-md h2,.dsh-obsidian-md h3,
-.dsh-obsidian-md h4,.dsh-obsidian-md h5,.dsh-obsidian-md h6{margin:14px 0 8px;line-height:1.3;color:#eee;font-weight:600}
-.dsh-obsidian-md h1{font-size:20px;border-bottom:1px solid #333;padding-bottom:4px}
+.dsh-obsidian-md h4,.dsh-obsidian-md h5,.dsh-obsidian-md h6{margin:14px 0 8px;line-height:1.3;color:var(--dsw-alias-label-primary);font-weight:600}
+.dsh-obsidian-md h1{font-size:20px;border-bottom:1px solid var(--dsw-alias-border-l2);padding-bottom:4px}
 .dsh-obsidian-md h2{font-size:17px}
 .dsh-obsidian-md h3{font-size:15px}
 .dsh-obsidian-md p{margin:8px 0}
-.dsh-obsidian-md a{color:#6cb6ff;text-decoration:none}
+.dsh-obsidian-md a{color:var(--dsw-alias-link);text-decoration:none}
 .dsh-obsidian-md a:hover{text-decoration:underline}
-.dsh-obsidian-md .dsh-obsidian-wikilink{color:#8fd694;border-bottom:1px dashed #4b7a52}
-.dsh-obsidian-md code{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:3px;padding:1px 4px;font-size:12px}
-.dsh-obsidian-md pre{background:#202020;border:1px solid #333;border-radius:4px;padding:10px;overflow-x:auto;margin:10px 0}
+.dsh-obsidian-md .dsh-obsidian-wikilink{color:var(--dsw-alias-state-success-primary);border-bottom:1px dashed var(--dsw-alias-state-success-primary)}
+.dsh-obsidian-md .dsh-obsidian-wikilink:hover{background:var(--dsw-alias-interactive-bg-hover-solid)}
+.dsh-obsidian-md code{background:var(--dsw-alias-markdown-inline-code);border:1px solid var(--dsw-alias-border-l2);border-radius:3px;padding:1px 4px;font-size:12px}
+.dsh-obsidian-md pre{background:var(--dsw-alias-markdown-code-block);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;padding:10px;overflow-x:auto;margin:10px 0}
 .dsh-obsidian-md pre code{background:none;border:0;padding:0;white-space:pre}
-.dsh-obsidian-md blockquote{margin:10px 0;padding:2px 10px;border-left:3px solid #555;color:#aaa}
+.dsh-obsidian-md blockquote{margin:10px 0;padding:2px 10px;border-left:3px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary)}
 .dsh-obsidian-md ul,.dsh-obsidian-md ol{margin:8px 0;padding-left:22px}
 .dsh-obsidian-md li{margin:3px 0}
 .dsh-obsidian-md table{border-collapse:collapse;margin:10px 0;font-size:12px}
-.dsh-obsidian-md th,.dsh-obsidian-md td{border:1px solid #444;padding:4px 8px}
-.dsh-obsidian-md th{background:#2b2b2b}
-.dsh-obsidian-md hr{border:0;border-top:1px solid #3a3a3a;margin:14px 0}
+.dsh-obsidian-md th,.dsh-obsidian-md td{border:1px solid var(--dsw-alias-border-l3);padding:4px 8px}
+.dsh-obsidian-md th{background:var(--dsw-alias-markdown-code-block-banner)}
+.dsh-obsidian-md hr{border:0;border-top:1px solid var(--dsw-alias-border-l3);margin:14px 0}
 .dsh-obsidian-md img{max-width:100%;border-radius:4px}
 `
 
@@ -70,12 +75,30 @@ function errorText(j) {
   return routeErrorText(j?.error)
 }
 
+// Host theme flag: DSH adds data-ds-dark-theme on body only in dark mode, so
+// observe that attribute and re-render whatever depends on it.
+function useDarkTheme() {
+  const [dark, setDark] = useState(() => isDarkDocument(document.body))
+  useEffect(() => {
+    const body = document.body
+    if (!body) return undefined
+    setDark(isDarkDocument(body))
+    if (typeof MutationObserver === 'undefined') return undefined
+    const observer = new MutationObserver(() => setDark(isDarkDocument(body)))
+    observer.observe(body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return dark
+}
+
 function ErrorBanner(props) {
   if (!props.text) return null
   return createElement('div', {
     style: {
       margin: '8px', padding: '6px 8px', borderRadius: 4, fontSize: 12,
-      background: '#3a2323', color: '#ffb4b4', border: '1px solid #5a2a2a',
+      background: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)',
+      color: 'var(--dsw-alias-state-error-primary)',
+      border: '1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, transparent)',
     },
   }, props.text)
 }
@@ -106,7 +129,7 @@ function DirList(props) {
       createElement('div', { key: dir, style: { marginBottom: 10 } },
         createElement('b', null, dir),
         (lists[dir] ?? []).map((f) =>
-          createElement('div', { key: dir + '/' + f, style: { paddingLeft: 10, cursor: 'pointer', color: '#6cb6ff' } },
+          createElement('div', { key: dir + '/' + f, style: { paddingLeft: 10, cursor: 'pointer', color: 'var(--dsw-alias-link)' } },
             createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); onOpen(dir + '/' + f) } }, f)
           )
         ),
@@ -134,7 +157,7 @@ function SearchView(props) {
     createElement('input', { value: q, placeholder: '搜索知识库…', onChange: (e) => setQ(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') run() }, style: { width: '100%', boxSizing: 'border-box', padding: 4 } }),
     createElement('button', { onClick: run, style: { marginTop: 4 } }, '搜索'),
     results.map((r) =>
-      createElement('div', { key: r.path, style: { padding: 4, cursor: 'pointer', color: '#6cb6ff' } },
+      createElement('div', { key: r.path, style: { padding: 4, cursor: 'pointer', color: 'var(--dsw-alias-link)' } },
         createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); onOpen(r.path) } }, r.path + ' — ' + String(r.excerpt ?? '').slice(0, 60))
       )
     ),
@@ -169,15 +192,15 @@ function NoteView(props) {
     if (next) props.onOpen(next)
   }
   return createElement('div', { style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } },
-    createElement('div', { style: { padding: '8px', borderBottom: '1px solid #2c2c2c', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 } },
+    createElement('div', { style: { padding: '8px', borderBottom: '1px solid var(--dsw-alias-border-l2)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 } },
       createElement('button', { onClick: onBack, style: { flexShrink: 0 } }, '← 返回'),
-      createElement('span', { title: path, style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#aaa' } }, path),
-      createElement('a', { href: openInObsidian(path), style: { flexShrink: 0, color: '#6cb6ff', fontSize: 12 } }, '在 Obsidian 打开'),
+      createElement('span', { title: path, style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' } }, path),
+      createElement('a', { href: openInObsidian(path), style: { flexShrink: 0, color: 'var(--dsw-alias-link)', fontSize: 12 } }, '在 Obsidian 打开'),
     ),
     createElement('div', { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 10px 14px' } },
       createElement('style', null, MD_STYLE),
       content === null
-        ? createElement('div', { style: { padding: '10px 0', color: '#888', fontSize: 12 } }, error ? null : '加载中…')
+        ? createElement('div', { style: { padding: '10px 0', color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 } }, error ? null : '加载中…')
         : createElement('div', {
           className: 'dsh-obsidian-md',
           onClick: onPreviewClick,
@@ -190,12 +213,14 @@ function NoteView(props) {
 
 function GraphView() {
   // The graph page fetches /obsidian/graph itself: passing the whole graph
-  // through ?data= exceeded the host's request-line limit (HTTP 431).
+  // through ?data= exceeded the host's request-line limit (HTTP 431). The
+  // iframe is a separate document, so the resolved theme rides the URL.
+  const dark = useDarkTheme()
   return createElement('div', { style: { flex: 1, minHeight: 0, padding: 8, boxSizing: 'border-box' } },
     createElement('iframe', {
-      src: apiUrl('/obsidian/graph-page'),
+      src: apiUrl('/obsidian/graph-page', { theme: graphPageTheme(dark) }),
       title: '知识图谱',
-      style: { width: '100%', height: '100%', minHeight: 420, border: 0, borderRadius: 6, background: '#1e1e1e' },
+      style: { width: '100%', height: '100%', minHeight: 420, border: 0, borderRadius: 6, background: 'var(--dsw-alias-bg-base)' },
     }),
   )
 }
@@ -213,9 +238,9 @@ function TestConnection() {
       }
     }).catch(() => setState({ busy: false, result: { ok: false, text: '连接失败: 请求错误' } }))
   }
-  return createElement('div', { style: { padding: 8, fontSize: 12, borderTop: '1px solid #2c2c2c' } },
+  return createElement('div', { style: { padding: 8, fontSize: 12, borderTop: '1px solid var(--dsw-alias-border-l2)' } },
     createElement('button', { onClick: test, disabled: state.busy, style: { marginRight: 6 } }, state.busy ? '测试中…' : '测试连接'),
-    state.result && createElement('span', { style: { color: state.result.ok ? '#4caf50' : '#ff6b6b' } }, state.result.text),
+    state.result && createElement('span', { style: { color: state.result.ok ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-error-primary)' } }, state.result.text),
   )
 }
 
@@ -239,7 +264,7 @@ function StatusView() {
     const timer = setInterval(load, 5000)
     return () => { ignore = true; clearInterval(timer) }
   }, [])
-  return createElement('div', { style: { padding: '6px 8px', borderTop: '1px solid #2c2c2c', fontSize: 11, color: '#888', flexShrink: 0 } }, '编译: ' + status)
+  return createElement('div', { style: { padding: '6px 8px', borderTop: '1px solid var(--dsw-alias-border-l2)', fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', flexShrink: 0 } }, '编译: ' + status)
 }
 
 export function ObsidianPanel(props) {
@@ -255,8 +280,8 @@ export function ObsidianPanel(props) {
   const bodyStyle = view.kind === 'note' || view.kind === 'graph'
     ? { flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }
     : { flex: 1, minHeight: 0, overflowY: 'auto' }
-  return createElement('div', { style: { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, Segoe UI, sans-serif', color: '#ddd' } },
-    createElement('div', { style: { padding: 8, borderBottom: '1px solid #2c2c2c', flexShrink: 0 } },
+  return createElement('div', { style: { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, Segoe UI, sans-serif', color: 'var(--dsw-alias-label-primary)' } },
+    createElement('div', { style: { padding: 8, borderBottom: '1px solid var(--dsw-alias-border-l2)', flexShrink: 0 } },
       nav('目录', { kind: 'dirs' }), nav('搜索', { kind: 'search' }), nav('图谱', { kind: 'graph' }),
     ),
     createElement('div', { style: bodyStyle },

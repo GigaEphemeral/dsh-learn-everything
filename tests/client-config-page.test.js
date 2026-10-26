@@ -62,6 +62,31 @@ test("the config card stages the ingest switch through the settings form", async
   assert.match(locales, /ingest: '/, 'zh and en dictionaries name the switch');
 });
 
+test("the config card renders the grill persona textarea and stages it through the settings form", async () => {
+  const card = await readFile(new URL('../src/client/ObsidianConfigCard.js', import.meta.url), 'utf8');
+  assert.match(card, /id: 'plugin-config-obsidian-grill-persona'/);
+  assert.match(card, /rows: 4/);
+  assert.match(card, /props\.edit\('grillPersona', event\.target\.value\)/);
+  assert.match(card, /props\.resetField\('grillPersona'\)/);
+  assert.match(card, /state\.grillPersona\?\.text \?\? ''/, 'the control tolerates a missing server field');
+  const form = await readFile(new URL('../src/client/obsidian-config-form.js', import.meta.url), 'utf8');
+  assert.match(form, /settingsTextField\('grillPersona'\)/);
+  assert.match(form, /grillPersona: form\.field\('grillPersona'\)/);
+  const locales = await readFile(new URL('../src/client/config-locales.js', import.meta.url), 'utf8');
+  assert.equal((locales.match(/grillPersona: '/g) ?? []).length, 2, 'both dictionaries name the persona');
+  assert.equal((locales.match(/grillPersonaHint: '/g) ?? []).length, 2, 'both dictionaries explain the persona');
+  const bundle = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  assert.equal(bundle.includes('grillPersona'), true, 'the built client bundle carries the persona control');
+});
+
+test("config card status text follows the host theme tokens", async () => {
+  const card = await readFile(new URL('../src/client/ObsidianConfigCard.js', import.meta.url), 'utf8');
+  assert.equal(card.includes('#ff6b6b'), false);
+  assert.equal(card.includes('#7bd88f'), false);
+  assert.match(card, /var\(--dsw-alias-state-error-primary\)/);
+  assert.match(card, /var\(--dsw-alias-state-success-primary\)/);
+});
+
 test("the API address must be a valid http(s) URL", () => {
   assert.equal(isHttpUrl("https://127.0.0.1:27124"), true);
   assert.equal(isHttpUrl("http://localhost:27123/"), true);

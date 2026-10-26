@@ -17,10 +17,24 @@ import { MasteryStore } from '../../lib/src/learning/mastery.js'
 import { resolveStateDir } from '../ingest/state-dir.js'
 import { ObsidianClient, ObsidianAdapter } from '../obsidian/obsidian-adapter.js'
 import { contextNode } from '../../scripts/wiki-node-cli.mjs'
+// The gate returns the same persona the obs-grill-me skill renders, so both
+// surfaces stay on one resolution rule (settings > env > built-in default).
+// Imported from the shared persona module, not from the bundle entry: importing
+// the entry back would be an ESM cycle (the entry imports this tool group).
+import { resolveGrillPersona } from '../persona.js'
 
 const JSON_OUTPUT = {
   schema: { type: 'object' },
   render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+}
+
+/** Daily-practice scores below this threshold force the obs-grill-me follow-up. */
+export const GRILL_SCORE_THRESHOLD = 6
+const GRILL_SKILL = 'obs-grill-me'
+
+/** Pure gate predicate: a 0-10 score below the threshold requires grill-me. */
+export function isGrillRequired(score) {
+  return Number.isFinite(score) && score < GRILL_SCORE_THRESHOLD
 }
 
 function dbPath() {
@@ -154,6 +168,37 @@ function recordAnswerSpec() {
   }
 }
 
+// The skill asks this tool instead of comparing the score itself, so the
+// threshold and the teaching persona have exactly one source of truth. The
+// tool only reports; it never fabricates or overwrites a score.
+function grillGateSpec({ getConfig } = {}) {
+  return {
+    name: 'practice_grill_gate',
+    description: 'Gate the grill-me follow-up after a 0-10 daily-practice score: below 6 the obs-grill-me skill is mandatory. Returns the threshold, the decision and the configured teaching persona.',
+    parameters: {
+      type: 'object',
+      properties: {
+        score: { type: 'integer', minimum: 0, maximum: 10, description: 'The daily-practice score (0-10).' },
+      },
+      required: ['score'],
+    },
+    output: JSON_OUTPUT,
+    execute: async (args) => {
+      assertArgs('practice_grill_gate', args, ['score'], {
+        score: (value) => Number.isInteger(value) && value >= 0 && value <= 10,
+      })
+      const config = typeof getConfig === 'function' ? (getConfig() ?? {}) : {}
+      return {
+        score: args.score,
+        threshold: GRILL_SCORE_THRESHOLD,
+        required: isGrillRequired(args.score),
+        skill: GRILL_SKILL,
+        persona: resolveGrillPersona(config),
+      }
+    },
+  }
+}
+
 function statusSpec() {
   return {
     name: 'practice_status',
@@ -187,7 +232,7 @@ function statusSpec() {
 
 /** All practice tools as registry-ready ToolDefinition objects. */
 export function practiceToolSpecs({ getConfig } = {}) {
-  return [drawNodeSpec({ getConfig }), recordQuestionSpec(), recordAnswerSpec(), statusSpec()]
+  return [drawNodeSpec({ getConfig }), recordQuestionSpec(), recordAnswerSpec(), statusSpec(), grillGateSpec({ getConfig })]
 }
 
 // Register the practice tools on the host tool registry. Returns the

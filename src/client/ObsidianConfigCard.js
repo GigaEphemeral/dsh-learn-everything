@@ -36,6 +36,10 @@ export function ObsidianConfigCard(props) {
   const keyText = String(state.apiKey?.text ?? '').trim()
   const urlText = String(state.baseUrl?.text ?? '').trim()
   const vaultText = String(state.vaultName?.text ?? '').trim()
+  // The persona setting is optional for the card: when the host snapshot has
+  // no such field yet, the control starts blank instead of crashing.
+  const personaText = String(state.grillPersona?.text ?? '')
+  const personaOverridden = Boolean(state.grillPersona?.overridden)
   const ingestOn = String(state.ingest?.text ?? 'true') !== 'false'
 
   // A secret already configured may stay blank ("keep current"); a fresh
@@ -135,6 +139,27 @@ export function ObsidianConfigCard(props) {
       onEdit: (text) => { setTestError(null); setNotice(null); props.edit('vaultName', text) },
       onReset: () => { props.resetField('vaultName') },
     }),
+    createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12 } },
+      createElement('label', { htmlFor: 'plugin-config-obsidian-grill-persona', style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 } },
+        t('grillPersona'),
+        personaOverridden && createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' } }, t('overridden')),
+      ),
+      createElement('textarea', {
+        id: 'plugin-config-obsidian-grill-persona',
+        rows: 4,
+        value: personaText,
+        disabled,
+        onChange: (event) => { setTestError(null); setNotice(null); props.edit('grillPersona', event.target.value) },
+        style: { width: '100%', boxSizing: 'border-box', padding: 6, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' },
+      }),
+      createElement('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' } }, t('grillPersonaHint')),
+      personaOverridden && createElement('button', {
+        type: 'button',
+        disabled,
+        onClick: () => { props.resetField('grillPersona') },
+        style: { alignSelf: 'flex-start', fontSize: 11 },
+      }, t('reset')),
+    ),
     createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12 } },
       createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
         createElement('div', { style: { fontSize: 13 } }, t('ingest')),
@@ -147,7 +172,7 @@ export function ObsidianConfigCard(props) {
         onChange: (next) => { setTestError(null); setNotice(null); props.edit('ingest', next ? 'true' : 'false') },
       }),
     ),
-    testError && createElement('div', { role: 'status', style: { color: '#ff6b6b', fontSize: 12, marginTop: 6 } }, testError),
-    notice && createElement('div', { role: 'status', style: { color: '#7bd88f', fontSize: 12, marginTop: 6 } }, notice),
+    testError && createElement('div', { role: 'status', style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, marginTop: 6 } }, testError),
+    notice && createElement('div', { role: 'status', style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, marginTop: 6 } }, notice),
   )
 }

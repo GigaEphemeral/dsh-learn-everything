@@ -19,7 +19,7 @@ Rather than pursuing feature quantity, this project prioritizes the reliability 
 
 **Knowledge Retrieval( /obs-knowledge-search   )**: Performs evidence-based retrieval using KarpathyWiki and raw notes, synthesizing answers with reliable citations via the DSH model.
 
-**Learning Practice( /obs-daily-practice  )**: Facilitates on-the-fly question generation, answer evaluation, and error correction, while persistently tracking mastery and review schedules via SQLite.
+**Learning Practice( /obs-daily-practice  )**: Facilitates on-the-fly question generation, answer evaluation, and error correction, while persistently tracking mastery and review schedules via SQLite. A first score below 6/10 forces the /obs-grill-me follow-up.
 
 # Usage Scenarios
 <p align="center">
@@ -43,7 +43,7 @@ For design details [flow-ingest-practice.md](./detailDoc/flow-ingest-practice.md
 package.json   # dsh.bundle.patch -> ./cordis.patch.yml
 cordis.patch.yml  # registers this plugin in the DSH profile
 index.js       # registers the skills under skills/ into ctx.skills
-skills/        # built-in skills: obs-remember-knowledge, obs-knowledge-search, obs-daily-practice, obs-access
+skills/        # built-in skills: obs-remember-knowledge, obs-knowledge-search, obs-daily-practice, obs-grill-me, obs-access
 ```
 
 ## Source layout (by domain)
@@ -90,13 +90,19 @@ URL (https only) or local .md
 
 > Note: the REST API only lists non-empty directories; empty folders (Inbox) exist on disk but do not appear in the `/vault/` listing.
 
+## Socratic grilling (/obs-grill-me)
+- Trigger: the user explicitly asks to be grilled/challenged, or /obs-daily-practice first scores below 6/10 (confirmed through `practice_grill_gate`; `required=true` makes the follow-up mandatory, not optional).
+- Method: one critical question per turn (`ask_user_question` with 2-4 concrete options), probing goal/evidence/causality/boundary/counterexample/application, at most 8 rounds, then a variant question to verify understanding.
+- Persona: the `grillPersona` plugin setting (saved on the plugins page, volatile so it applies immediately; defaults to the built-in strict, evidence-driven teacher). The skill renders `{{persona}}` when it is loaded and `practice_grill_gate` returns the same text, so the two can never drift.
+- Boundary: grilling writes only SQLite learning state, never Obsidian notes.
+
 ## Build / package / deploy
 
 ```bash
 npm ci --ignore-scripts          # install (locked); use npm_config_cache=/tmp/npm-cache if the local npm cache is read-only
 npm run build                    # tsc: src/db + src/learning -> lib/
 npm run build:client             # esbuild: the right-sidebar panel bundle -> lib/client.js
-npm test                         # 314 tests, 0 skipped
+npm test                         # 372 tests, 0 skipped
 ```
 
 ### Package a complete bundle (for release, not a code link)
@@ -166,10 +172,11 @@ Required values are also configurable on the plugin config page. Other environme
 | OBSIDIAN_LEARNING_DB | SQLite learning database path | `<state dir>/learning.db` |
 | OBSIDIAN_WIKI_DIRS | wiki dirs used by daily practice for node sampling (comma-separated) | wiki/concepts,wiki/entities,wiki/sources |
 | OBSIDIAN_STATE_DIR | runtime state dir (ingest registry, attempts, review) | code/.state |
+| OBSIDIAN_GRILL_PERSONA | Fallback teaching persona when the plugin setting is empty | built-in strict-teacher persona |
 
 ### Obsidian access config (S4 right-sidebar panel)
 
-- **Plugins page**: DSH -> plugins -> dsh-learn-everything -> apiKey (secret) + baseUrl + vaultName; saving applies without a restart (volatile config; **connectivity is tested before saving** - a wrong key is not saved).
+- **Plugins page**: DSH -> plugins -> dsh-learn-everything -> apiKey (secret) + baseUrl + vaultName + grillPersona (teaching persona); saving applies without a restart (volatile config; **connectivity is tested before saving** - a wrong key is not saved).
 - **Env fallback**: OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL / OBSIDIAN_VAULT_NAME (default https://127.0.0.1:27124 / learnEverything).
 - Precedence: plugin config -> env -> default; unconfigured routes answer 503 obsidian-not-configured instead of 404.
 - The panel is a client half (src/client/index.js) registering an Obsidian tab into DSH's native right sidebar, backed by fenced routes (src/sidebar/routes.js) that proxy the Obsidian REST API; the API key never reaches the browser.

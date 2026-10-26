@@ -6,10 +6,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { apply, loadSkillsCached, loadSkillsFrom, name as pluginName } from "../index.js";
+import { apply, DEFAULT_GRILL_PERSONA, loadSkillsCached, loadSkillsFrom, name as pluginName } from "../index.js";
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PACKAGED_SKILLS = ["obs-access", "obs-daily-practice", "obs-knowledge-search", "obs-remember-knowledge"];
+const PACKAGED_SKILLS = ["obs-access", "obs-daily-practice", "obs-grill-me", "obs-knowledge-search", "obs-remember-knowledge"];
 
 const VALID_SKILL = `---
 name: valid-one
@@ -59,6 +59,53 @@ test("apply registers a provider that lists the packaged skills", async () => {
   assert.equal(await provider.get({ name: "missing-skill" }), undefined);
 });
 
+test("provider renders the configured grill persona into obs-grill-me per call", async () => {
+  const prev = process.env.OBSIDIAN_GRILL_PERSONA;
+  delete process.env.OBSIDIAN_GRILL_PERSONA;
+  try {
+    const providers = [];
+    apply({ skills: { registerProvider: (factory) => providers.push(factory) } });
+    const provider = providers[0]();
+    const withDefault = await provider.get({ name: "obs-grill-me" });
+    assert.equal(withDefault.name, "obs-grill-me");
+    // The model must never see the raw placeholder, and the shipped persona
+    // must be rendered in its place.
+    assert.ok(!withDefault.content.includes("{{persona}}"), "the persona placeholder must be substituted");
+    assert.ok(withDefault.content.includes(DEFAULT_GRILL_PERSONA), "the built-in persona must be rendered");
+    assert.match(withDefault.content, /## 教学人格/);
+
+    // Volatile references are re-read on every get(): the settings form can
+    // change the persona without remounting the plugin, so a snapshot taken
+    // at provider creation would serve a stale persona.
+    let persona = "FIRST-PERSONA";
+    const config = { grillPersona: { get: () => persona } };
+    const customProviders = [];
+    apply({ skills: { registerProvider: (factory) => customProviders.push(factory) } }, config);
+    const customProvider = customProviders[0]();
+    const first = await customProvider.get({ name: "obs-grill-me" });
+    assert.match(first.content, /FIRST-PERSONA/);
+    persona = "SECOND-PERSONA";
+    const second = await customProvider.get({ name: "obs-grill-me" });
+    assert.match(second.content, /SECOND-PERSONA/, "a volatile persona change must apply to the next get()");
+    assert.doesNotMatch(second.content, /FIRST-PERSONA/);
+
+    // Direct callers pass a plain string instead of a volatile reference.
+    const plainProviders = [];
+    apply({ skills: { registerProvider: (factory) => plainProviders.push(factory) } }, { grillPersona: "PLAIN-PERSONA" });
+    const plain = await plainProviders[0]().get({ name: "obs-grill-me" });
+    assert.match(plain.content, /PLAIN-PERSONA/);
+    assert.ok(!plain.content.includes(DEFAULT_GRILL_PERSONA));
+
+    // Persona rendering is scoped to obs-grill-me; other skills stay as shipped.
+    const daily = await provider.get({ name: "obs-daily-practice" });
+    assert.ok(!daily.content.includes(DEFAULT_GRILL_PERSONA));
+    assert.ok(!daily.content.includes("{{persona}}"));
+  } finally {
+    if (prev === undefined) delete process.env.OBSIDIAN_GRILL_PERSONA;
+    else process.env.OBSIDIAN_GRILL_PERSONA = prev;
+  }
+});
+
 test("apply registers every native tool when the host exposes tools", async () => {
   const providers = [];
   const registered = [];
@@ -68,6 +115,7 @@ test("apply registers every native tool when the host exposes tools", async () =
   });
   assert.deepEqual(registered.map((tool) => tool.name), [
     "practice_draw_node", "practice_record_question", "practice_record_answer", "practice_status",
+    "practice_grill_gate",
     "obs_ingest", "obs_vault", "obs_compile",
   ]);
   for (const tool of registered) {
@@ -94,6 +142,35 @@ test("packaged skills use native tools instead of shell commands", async () => {
   assert.match(bodies["obs-knowledge-search"], /obs_vault/, "search must use the native vault tool");
   assert.match(bodies["obs-access"], /obs_compile/, "access must use the native compile tool");
   assert.match(bodies["obs-daily-practice"], /practice_draw_node/, "daily-practice must use the native draw tool");
+  assert.match(bodies["obs-grill-me"], /## 教学人格/, "grill-me must define its persona section");
+  assert.match(bodies["obs-grill-me"], /\{\{persona\}\}/, "grill-me must keep the persona placeholder for the plugin to render");
+  assert.match(bodies["obs-grill-me"], /ask_user_question/, "grill-me must ask one question per turn with the native question tool");
+  assert.match(bodies["obs-grill-me"], /practice_grill_gate/, "grill-me must name the native gate tool");
+  assert.match(bodies["obs-grill-me"], /2-4\s*个具体/, "grill-me must offer concrete options, not plain-text questions");
+  assert.match(bodies["obs-grill-me"], /不超过\s*8\s*轮/, "grill-me must bound the number of rounds");
+  assert.doesNotMatch(bodies["obs-grill-me"], /obs_ingest|obs_compile/, "grill-me must not write to the vault");
+});
+
+test("obs-daily-practice mandates the grill gate below 6/10", async () => {
+  const text = await readFile(join(PLUGIN_ROOT, "skills", "obs-daily-practice", "SKILL.md"), "utf8");
+  // Below six the lightweight local follow-up is no longer acceptable: the
+  // skill must route through the gate and then load the packaged grill skill.
+  assert.match(text, /首次评分低于\s*6[^。\n]*必须调用\s*`practice_grill_gate`/);
+  assert.match(text, /required=true[^。\n]*必须加载并执行\s*`obs-grill-me`/);
+  assert.match(text, /不是可选项/);
+  assert.doesNotMatch(text, /仅用户主动要求/, "grill-me must stop being optional");
+});
+
+test("obs-grill-me frontmatter describes the high-pressure grill trigger", async () => {
+  const text = await readFile(join(PLUGIN_ROOT, "skills", "obs-grill-me", "SKILL.md"), "utf8");
+  const frontmatter = text.split("---")[1];
+  assert.match(frontmatter, /name: obs-grill-me/);
+  assert.match(frontmatter, /description:/);
+  assert.match(frontmatter, /苏格拉底/);
+  assert.match(frontmatter, /每轮只问一个关键问题/);
+  assert.match(frontmatter, /grill me/);
+  assert.match(frontmatter, /低于\s*6/);
+  assert.match(frontmatter, /挑战/);
 });
 
 test("loadSkillsFrom skips missing or unreadable SKILL.md files with warnings (F1)", async () => {

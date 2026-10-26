@@ -1,6 +1,6 @@
 ---
 name: obs-daily-practice
-description: "从知识库随机抽一个节点，LLM 即时出概念/实现/测试题，作答后犀利评分，答错时轻量追问。用户想练习或检验掌握时使用。"
+description: "从知识库随机抽一个节点，LLM 即时出概念/实现/测试题，作答后犀利评分；低于 6 分强制进入 obs-grill-me 高压追问。用户想练习或检验掌握时使用。"
 ---
 
 # /obs-daily-practice：每日一练
@@ -18,8 +18,9 @@ description: "从知识库随机抽一个节点，LLM 即时出概念/实现/测
    面向用户默认只给：分数 / 最关键错误 / 改进建议。
 6. **记录**：出题后调用 `practice_record_question`；评价后调用 `practice_record_answer`
    （phase：首次 `first`，纠错 `correction`，变式 `variant`）。需要时用 `practice_status` 查看。
-7. **追问**：分数低于 6 或用户表示不会时，先在当前对话内每轮一问、最多 3-4 轮；
-   仅用户主动要求才调用 `grill-me` 技能。
+7. **强制追问**：首次评分低于 6，或用户表示不会时，必须调用 `practice_grill_gate`（score=本次评分）；
+   当返回 required=true 时，必须加载并执行 `obs-grill-me` 技能，按该技能完成追问直到真正理解。
+   这一步不是可选项：只做几轮本地轻量追问、或跳过 `obs-grill-me`，都不算完成本次练习。
 
 ## 纪律
 - 题目与作答不写入 Obsidian；学习状态只存 SQLite（决策 B）。

@@ -3,7 +3,7 @@
 // the plugin reads those fields as Volatile references.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Config, readConfigString, resolveObsidianConfig } from '../index.js';
+import { Config, DEFAULT_GRILL_PERSONA, readConfigString, resolveGrillPersona, resolveObsidianConfig } from '../index.js';
 
 test('plugin Config fields are volatile so SettingsForms can project them', () => {
   // volatileForm() returns undefined (and the form disappears) without this.
@@ -73,5 +73,42 @@ test('resolveObsidianConfig reads the ingest switch from the settings document',
   assert.equal(resolveObsidianConfig({ ingest: false }).ingest, false);
   assert.equal(resolveObsidianConfig({ ingest: { get: () => false } }).ingest, false);
   assert.equal(resolveObsidianConfig({ ingest: { get: () => true } }).ingest, true);
+});
+
+test('grill persona is a volatile setting defaulting to the built-in strict teacher', () => {
+  // The persona shows up in the plugins page and the skill/tool read it back
+  // through a volatile reference, so it must be projected like apiKey/baseUrl.
+  assert.equal(Config.dict.grillPersona.meta.volatile, true);
+  assert.equal(Config.dict.grillPersona.meta.default, DEFAULT_GRILL_PERSONA);
+  const parsed = Config({});
+  assert.equal(typeof parsed.grillPersona.get, 'function');
+  assert.equal(parsed.grillPersona.get(), DEFAULT_GRILL_PERSONA);
+  // A usable persona is a concrete multi-rule prompt, not a one-liner.
+  const rules = DEFAULT_GRILL_PERSONA.split('\n').filter((line) => /^\d+\.\s/.test(line.trim()));
+  assert.ok(rules.length >= 5, 'the built-in persona must state at least five concrete rules');
+  assert.match(DEFAULT_GRILL_PERSONA, /证据/, 'only evidence-backed understanding may count');
+  assert.match(DEFAULT_GRILL_PERSONA, /变式/, 'understanding must be verified with a variant question');
+});
+
+test('resolveGrillPersona prefers settings, then environment, then the default', () => {
+  const prev = process.env.OBSIDIAN_GRILL_PERSONA;
+  try {
+    delete process.env.OBSIDIAN_GRILL_PERSONA;
+    assert.equal(resolveGrillPersona({}), DEFAULT_GRILL_PERSONA);
+    assert.equal(resolveGrillPersona(undefined), DEFAULT_GRILL_PERSONA);
+    // Configured values win and are trimmed; volatile refs are unwrapped.
+    assert.equal(resolveGrillPersona({ grillPersona: '  CUSTOM-CFG  ' }), 'CUSTOM-CFG');
+    assert.equal(resolveGrillPersona({ grillPersona: { get: () => '  REF-CFG  ' } }), 'REF-CFG');
+    process.env.OBSIDIAN_GRILL_PERSONA = '  ENV-PERSONA  ';
+    assert.equal(resolveGrillPersona({}), 'ENV-PERSONA');
+    // A blank/whitespace-only setting falls through to the environment.
+    assert.equal(resolveGrillPersona({ grillPersona: '   ' }), 'ENV-PERSONA');
+    assert.equal(resolveGrillPersona({ grillPersona: 'CFG-WINS' }), 'CFG-WINS');
+    // Config({}) carries the built-in default, so it outranks the environment.
+    assert.equal(resolveGrillPersona(Config({})), DEFAULT_GRILL_PERSONA);
+  } finally {
+    if (prev === undefined) delete process.env.OBSIDIAN_GRILL_PERSONA;
+    else process.env.OBSIDIAN_GRILL_PERSONA = prev;
+  }
 });
 

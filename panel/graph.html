@@ -7,18 +7,49 @@
      works without reaching a CDN. -->
 <script src="./vis-network.min.js"></script>
 <style>
-  html,body{margin:0;height:100%;font-family:-apple-system,Segoe UI,sans-serif;background:#1e1e1e;color:#ddd}
+  /* Light is the default palette; html[data-theme='dark'] flips it. The panel
+     iframe is a separate document, so it carries its own palette instead of
+     reading DSH tokens. */
+  :root{
+    color-scheme:light;
+    --graph-bg:#ffffff;
+    --graph-fg:#1f2329;
+    --graph-muted:#5b6270;
+    --graph-line:#d9dde4;
+    --graph-panel:#f6f7f9;
+    --graph-link:#1a63d8;
+    --graph-button-bg:#eef1f5;
+    --graph-button-fg:#1f2329;
+    --graph-button-border:#c9d0da;
+    --graph-button-hover:#e2e7ee;
+    --graph-status-error:#c62828;
+  }
+  html[data-theme='dark']{
+    color-scheme:dark;
+    --graph-bg:#15181c;
+    --graph-fg:#e7e9ec;
+    --graph-muted:#a3aab5;
+    --graph-line:#313841;
+    --graph-panel:#1b1f24;
+    --graph-link:#6cb6ff;
+    --graph-button-bg:#262c33;
+    --graph-button-fg:#e7e9ec;
+    --graph-button-border:#3a424c;
+    --graph-button-hover:#30373f;
+    --graph-status-error:#ff8f8f;
+  }
+  html,body{margin:0;height:100%;font-family:-apple-system,Segoe UI,sans-serif;background:var(--graph-bg);color:var(--graph-fg)}
   #app{display:flex;height:100%}
   #graph{flex:1;height:100%;min-width:0}
-  #info{width:260px;border-left:1px solid #333;padding:10px;overflow:auto;font-size:13px;box-sizing:border-box}
+  #info{width:260px;border-left:1px solid var(--graph-line);background:var(--graph-panel);padding:10px;overflow:auto;font-size:13px;box-sizing:border-box}
   #info h3{margin:0 0 8px;font-size:14px;word-break:break-word}
-  #info .type{color:#888;font-size:12px}
-  #info .path{margin-top:6px;word-break:break-all;color:#bbb}
-  #status{position:absolute;left:16px;top:16px;font-size:12px;color:#aaa;background:#1e1e1e}
-  #status.error{color:#ffb4b4}
-  a{color:#6cb6ff}
-  button{background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 10px;margin-top:8px;cursor:pointer}
-  button:hover{background:#444}
+  #info .type{color:var(--graph-muted);font-size:12px}
+  #info .path{margin-top:6px;word-break:break-all;color:var(--graph-muted)}
+  #status{position:absolute;left:16px;top:16px;font-size:12px;color:var(--graph-muted);background:var(--graph-bg)}
+  #status.error{color:var(--graph-status-error)}
+  a{color:var(--graph-link)}
+  button{background:var(--graph-button-bg);color:var(--graph-button-fg);border:1px solid var(--graph-button-border);border-radius:4px;padding:4px 10px;margin-top:8px;cursor:pointer}
+  button:hover{background:var(--graph-button-hover)}
 </style>
 </head>
 <body>
@@ -30,6 +61,37 @@
   // The page owns its data read: the panel embeds this page without a query
   // payload, so a large graph never exceeds the host's request-line limit.
   // Same-origin cookies authenticate the fenced route.
+
+  // The panel passes ?theme=dark|light; otherwise fall back to the same-origin
+  // parent document's dark-only body attribute. Resolved before the first
+  // render so the vis-network canvas picks up palette colors.
+  function resolveTheme() {
+    var params = new URLSearchParams(location.search);
+    var requested = params.get('theme');
+    if (requested === 'dark' || requested === 'light') return requested;
+    try {
+      return window.parent.document.body.hasAttribute('data-ds-dark-theme') ? 'dark' : 'light';
+    } catch (error) {
+      return 'light';
+    }
+  }
+  document.documentElement.dataset.theme = resolveTheme();
+
+  // vis-network paints on a canvas, so it cannot consume CSS variables: read
+  // the active palette through getComputedStyle instead.
+  function readPalette() {
+    var styles = getComputedStyle(document.documentElement);
+    function token(name, fallback) {
+      var value = styles.getPropertyValue(name);
+      return value && value.trim() ? value.trim() : fallback;
+    }
+    return {
+      label: token('--graph-fg', '#1f2329'),
+      line: token('--graph-line', '#d9dde4'),
+      link: token('--graph-link', '#1a63d8'),
+    };
+  }
+
   var network = null;
   var currentNodes = [];
   var statusLine = document.createElement('div');
@@ -42,7 +104,7 @@
   }
 
   function colorFor(type) {
-    return { concept: '#4fc3f7', entity: '#81c784', source: '#ffb74d', other: '#aaa' }[type] || '#aaa';
+    return { concept: '#4fc3f7', entity: '#81c784', source: '#ffb74d', other: '#9aa3ad' }[type] || '#9aa3ad';
   }
 
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
@@ -75,6 +137,7 @@
 
   function render(data) {
     var container = document.getElementById('graph');
+    var palette = readPalette();
     var nodesInput = Array.isArray(data && data.nodes)
       ? data.nodes.filter(function (n) { return n && typeof n.id === 'string' && n.id; })
       : [];
@@ -103,8 +166,8 @@
       .map(function (e, i) { return { id: i, from: e.source, to: e.target }; }));
     if (network === null) {
       network = new vis.Network(container, { nodes: nodes, edges: edges }, {
-        nodes: { shape: 'dot', size: 14, font: { color: '#ddd', size: 13 } },
-        edges: { color: { color: '#555', highlight: '#6cb6ff' }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } },
+        nodes: { shape: 'dot', size: 14, font: { color: palette.label, size: 13 } },
+        edges: { color: { color: palette.line, highlight: palette.link }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } },
         physics: { enabled: true, solver: 'forceAtlas2Based', stabilization: { iterations: 200 } },
         interaction: { hover: true },
       });

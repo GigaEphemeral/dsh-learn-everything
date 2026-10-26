@@ -19,7 +19,7 @@ dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知�
 
 **知识检索 ( /obs-knowledge-search   )**：基于 KarpathyWiki 与原始笔记进行证据检索，结合 DSH 模型进行答案合成，并提供可信引用。
 
-**学习训练 ( /obs-daily-practice  )**：通过即时生成题目、评估作答、纠正错误，利用 SQLite 持久化跟踪掌握度与复习调度。
+**学习训练 ( /obs-daily-practice  )**：通过即时生成题目、评估作答、纠正错误，利用 SQLite 持久化跟踪掌握度与复习调度；评分低于 6/10 时强制进入 /obs-grill-me 高压追问。
 
 # 使用场景
 <p align="center">
@@ -42,7 +42,7 @@ dsh-learn-everything 是一套运行在 DSH (DeepSeek Harness) 中的个人知�
 package.json   # dsh.bundle.patch -> ./cordis.patch.yml
 cordis.patch.yml  # 在 DSH profile 中注册本插件
 index.js       # 把 skills/ 下的技能注册到 ctx.skills
-skills/        # 内置技能：obs-remember-knowledge、obs-knowledge-search、obs-daily-practice、obs-access
+skills/        # 内置技能：obs-remember-knowledge、obs-knowledge-search、obs-daily-practice、obs-grill-me、obs-access
 ```
 
 ## 源码结构（按领域分包）
@@ -87,13 +87,19 @@ URL（仅 https）或本地 .md
 
 > 说明：REST API 只列出非空目录；空文件夹（Inbox）在磁盘存在但不出现在 `/vault/` 列表。
 
+## 追问教学（/obs-grill-me）
+- 触发：用户主动要求「grill me」或想被挑战；或 /obs-daily-practice 首次评分低于 6/10（调用 `practice_grill_gate` 确认，`required=true` 时强制进入，不是可选项）。
+- 方式：每轮只问一个关键问题（`ask_user_question`，2-4 个具体选项），依次压测目标/证据/因果/边界/反例/应用，最多 8 轮；学会后用变式题复验。
+- 人格：插件配置页的 `grillPersona`（可保存，volatile 即时生效；默认是内置的严厉严谨教师）。技能加载时把 `{{persona}}` 渲染为当前人格，`practice_grill_gate` 返回同一人格，两处不会漂移。
+- 边界：追问过程只写 SQLite 学习状态，不写入 Obsidian 正式知识笔记。
+
 ## 本地构建 / 打包 / 部署
 
 ```bash
 npm ci --ignore-scripts          # 安装依赖（本机 npm cache 只读时：npm_config_cache=/tmp/npm-cache npm ci）
 npm run build                    # tsc：src/db + src/learning -> lib/
 npm run build:client             # esbuild：右侧栏面板 bundle -> lib/client.js
-npm test                         # 314 测试，0 跳过
+npm test                         # 372 测试，0 跳过
 ```
 
 ### 打包为完整包（发布用，非 link）
@@ -167,9 +173,10 @@ cp .env.example .env   # 可以到源码.env下
 | OBSIDIAN_LEARNING_DB | SQLite 学习数据库路径 | `<状态目录>/learning.db` |
 | OBSIDIAN_WIKI_DIRS | 每日练习抽节点所使用的 wiki 目录（逗号分隔） | wiki/concepts,wiki/entities,wiki/sources |
 | OBSIDIAN_STATE_DIR | 运行状态目录（摄入注册表、作答、复习） | code/.state |
+| OBSIDIAN_GRILL_PERSONA | 追问教学人格兜底（插件设置为空时生效） | 内置严格教师人格 |
 
 ### Obsidian 访问配置（S4 右侧栏面板）
-- **plugins 页面**：DSH -> 插件 -> dsh-learn-everything -> apiKey（secret）+ baseUrl + vaultName；保存即生效（volatile 配置，无需重启；**保存前自动测试连接**，错 key 不保存）。
+- **plugins 页面**：DSH -> 插件 -> dsh-learn-everything -> apiKey（secret）+ baseUrl + vaultName + grillPersona（追问教学人格）；保存即生效（volatile 配置，无需重启；**保存前自动测试连接**，错 key 不保存）。
 - **环境变量兜底**：OBSIDIAN_API_KEY / OBSIDIAN_BASE_URL / OBSIDIAN_VAULT_NAME（默认 https://127.0.0.1:27124 / learnEverything）。
 - 优先级：插件配置 -> 环境变量 -> 默认；未配置时接口返回 503 obsidian-not-configured（而非 404）。
 - 面板 = 客户端 half（src/client/index.js）在 DSH 原生右侧栏注册 Obsidian tab，数据经围栏路由（src/sidebar/routes.js）代理 Obsidian REST；API key 不进入浏览器。

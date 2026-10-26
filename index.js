@@ -1,11 +1,11 @@
 /**
  * dsh-learn-everything bundle entry: registers the packaged skills under
  * `skills/<name>/SKILL.md` on `ctx.skills` (obs-remember-knowledge /
- * obs-knowledge-search / obs-daily-practice / obs-access) and the native tools
- * on `ctx.tools` (ingest / compile / vault / practice), so every session can
- * run the learning workflows without shell commands, a repository checkout or
- * an .env file on any OS. Frontmatter is parsed with the `yaml` library,
- * matching the official skill providers.
+ * obs-knowledge-search / obs-daily-practice / obs-grill-me / obs-access) and
+ * the native tools on `ctx.tools` (ingest / compile / vault / practice), so
+ * every session can run the learning workflows without shell commands, a
+ * repository checkout or an .env file on any OS. Frontmatter is parsed with
+ * the `yaml` library, matching the official skill providers.
  * @module dsh-learn-everything
  */
 
@@ -19,6 +19,8 @@ import { DEFAULT_BASE_URL, registerObsidianRoutes } from './src/sidebar/routes.j
 import { registerPracticeTools } from './src/tools/practice-tools.js'
 import { registerIngestTools } from './src/tools/ingest-tools.js'
 import { registerVaultTools } from './src/tools/vault-tools.js'
+import { readConfigBoolean, readConfigString } from './src/config-values.js'
+import { DEFAULT_GRILL_PERSONA, GRILL_SKILL_NAME, renderPersonaContent, resolveGrillPersona } from './src/persona.js'
 
 /** Same rank as packaged dsh skill providers (BUNDLED_SKILL_RANK). */
 const BUNDLED_SKILL_RANK = 600
@@ -28,6 +30,12 @@ const SKILLS_ROOT = fileURLToPath(new URL('./skills/', import.meta.url))
 
 export const name = 'dsh-learn-everything'
 export const inject = ['skills', 'tools']
+
+// Re-exported for tests and direct callers that imported these from the entry;
+// the implementations live in focused modules so tools never import the entry
+// back (an ESM cycle) just to reuse one resolver.
+export { readConfigBoolean, readConfigString }
+export { DEFAULT_GRILL_PERSONA, resolveGrillPersona }
 
 // Plugin config shown in the DSH plugins page (SettingsForms derives the form
 // from this schema). Every user preference MUST be volatile: the settings form
@@ -43,31 +51,9 @@ export const Config = z.object({
     .description('Obsidian vault name used for obsidian:// deep links. Leave empty to use OBSIDIAN_VAULT_NAME or the default.'),
   ingest: z.boolean().default(true).volatile()
     .description('Allow writing new sources into the vault (obs-remember-knowledge / obs_ingest). Turn off to keep ingest read-only.'),
+  grillPersona: z.string().default(DEFAULT_GRILL_PERSONA).volatile()
+    .description('Teaching persona used by the obs-grill-me follow-up. Leave empty to use OBSIDIAN_GRILL_PERSONA or the built-in strict teacher.'),
 })
-
-// Volatile config fields arrive as `Volatile<T>` references (schemastery wraps
-// them so the Loader can update them in place); plain strings are accepted so
-// direct callers and tests can pass a resolved config object.
-export function readConfigString(value, fallback = '') {
-  if (typeof value === 'string') return value
-  if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
-    const current = value.get()
-    if (typeof current === 'string') return current
-  }
-  return fallback
-}
-
-// Effective Obsidian access config: plugin Config (plugins page) first, env
-// fallback. Re-evaluated per request so a volatile settings write takes effect
-// without restarting the host.
-export function readConfigBoolean(value, fallback = true) {
-  if (typeof value === 'boolean') return value
-  if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
-    const current = value.get()
-    if (typeof current === 'boolean') return current
-  }
-  return fallback
-}
 
 // Effective Obsidian access config: plugin Config (plugins page) first, env
 // fallback. Re-evaluated per request so a volatile settings write takes effect
@@ -86,7 +72,7 @@ export function apply(ctx, config) {
   const initial = resolveObsidianConfig(config)
   const getConfig = () => resolveObsidianConfig(config)
 
-  registerNativeTools(ctx, getConfig)
+  registerNativeTools(ctx, config)
   // Routes are registered even when no key is configured: each data route then
   // answers 503 obsidian-not-configured instead of a confusing 404, and the
   // panel can tell the user to fill the settings form. The data layer resolves
@@ -114,7 +100,13 @@ export function apply(ctx, config) {
       options?.signal?.throwIfAborted()
       const listed = await loadSkills(options?.signal)
       const skill = catalogIndex(listed).get(candidate?.name)
-      return skill === undefined ? undefined : toDefinition(skill)
+      if (skill === undefined) return undefined
+      // The grill skill body carries a persona placeholder; render it per call
+      // so a volatile settings edit applies to the next load.
+      const content = skill.name === GRILL_SKILL_NAME
+        ? renderPersonaContent(skill.content, config)
+        : skill.content
+      return toDefinition(skill, content)
     },
   }))
 }
@@ -167,7 +159,10 @@ function catalogIndex(skills) {
 // failing group is reported and skipped so it cannot take the catalog down.
 const TOOL_GROUPS = [registerPracticeTools, registerIngestTools, registerVaultTools]
 
-function registerNativeTools(ctx, getConfig) {
+function registerNativeTools(ctx, config) {
+  // Tools re-read the effective config per call, so a volatile settings write
+  // (persona, ingest switch) applies to the next call without a restart.
+  const getConfig = () => ({ ...resolveObsidianConfig(config), grillPersona: resolveGrillPersona(config) })
   let count = 0
   for (const register of TOOL_GROUPS) {
     try {
@@ -314,7 +309,7 @@ function toCandidate(skill) {
   }
 }
 
-function toDefinition(skill) {
+function toDefinition(skill, content) {
   return {
     name: skill.name,
     description: skill.description,
@@ -324,6 +319,6 @@ function toDefinition(skill) {
     source: skill.source,
     resourceBase: skill.resourceBase,
     path: skill.path,
-    content: skill.content,
+    content,
   }
 }
