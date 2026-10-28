@@ -41,6 +41,7 @@ jobs:
       run: |
         npm run build
         npm run build:client
+        mkdir -p dist
         npm pack --pack-destination dist/ # 产物集中放 dist/，避免通配符误伤
 
     - name: Create Release and Upload Asset
