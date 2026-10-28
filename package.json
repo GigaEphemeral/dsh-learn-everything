@@ -1,7 +1,6 @@
 {
   "name": "dsh-learn-everything",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "DSH + Obsidian 个人知识学习系统插件：连 Obsidian（受控读写/摄入/检索）+ 学习闭环（每日一练/追问）。Complete DSH plugin bundle.",
   "scripts": {
@@ -52,7 +51,7 @@
     "learning",
     "obsidian"
   ],
-  "license": "MIT",
+  "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/dsh": "^0.2.0-rc.2"
