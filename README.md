@@ -1,6 +1,8 @@
 <h1 align="center" style="font-size: 3em; font-weight: bold;">dsh-learn-everything</h1>
 <p align="center">
   <a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
+  <br />
+  🏠 <a href="https://gigaephemeral.github.io/dsh-learn-everything/">Homepage / 项目主页</a>
   <br /><br />
   <a href="./LICENSE">
     <img src="https://img.shields.io/badge/License-BSD_3--Clause-blue.svg" alt="License" />
