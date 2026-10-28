@@ -24,6 +24,9 @@ jobs:
       with:
         node-version: 22
         cache: 'npm'
+        registry-url: 'https://registry.npmjs.org/' # 有值时 setup-node 才写 npmrc（main.ts:60-63）
+      env: # npmrc 里是 _authToken=${NODE_AUTH_TOKEN}，值取自本步骤 env（authutil.ts）
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH }}
 
     - name: Install Dependencies
       run: npm ci

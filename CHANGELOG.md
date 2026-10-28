@@ -8,7 +8,8 @@
 
 ### Added
 
-- release workflow：Release 正文改用本文件（`body_path: CHANGELOG.md`）；新增 `Publish to npm` 步骤（`npm publish --provenance --access public`，需在仓库 Secrets 配置 Automation 类型的 `NPM_TOKEN`）
+- release workflow：Release 正文改用本文件（`body_path: CHANGELOG.md`；注意 `softprops/action-gh-release` 不覆盖已存在 Release 的正文，需先删除旧 Release 才生效）
+- release workflow：新增 `Publish to npm` 步骤；`Setup Node.js` 补 `registry-url` + 步骤 `env.NODE_AUTH_TOKEN`（secret 名 `NPM_PUBLISH`），修复 `npm publish` 报 ENEEDAUTH
 - npm 包内附 `CHANGELOG.md`
 - `dsh-plugin.json` 的 `version` 与 `package.json` 对齐（原为 0.1.0，包已 0.1.2）
 
