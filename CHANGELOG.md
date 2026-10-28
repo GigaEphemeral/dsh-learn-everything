@@ -10,6 +10,7 @@
 
 - release workflow：Release 正文改用本文件（`body_path: CHANGELOG.md`）；新增 `Publish to npm` 步骤（`npm publish --provenance --access public`，需在仓库 Secrets 配置 Automation 类型的 `NPM_TOKEN`）
 - npm 包内附 `CHANGELOG.md`
+- `dsh-plugin.json` 的 `version` 与 `package.json` 对齐（原为 0.1.0，包已 0.1.2）
 
 ## [0.1.2] - 2026-10-28
 

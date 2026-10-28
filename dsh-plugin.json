@@ -2,7 +2,7 @@
   "manifestVersion": "0.15",
   "id": "dsh-learn-everything",
   "name": "dsh-learn-everything",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "license": "BSD-3-Clause",
   "description": "DSH + Obsidian 个人知识学习插件：知识摄入 / 知识检索 / 学习训练（LLM 即时出题）。",
   "facets": {
