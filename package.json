@@ -1,6 +1,6 @@
 {
   "name": "dsh-learn-everything",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "DSH + Obsidian 个人知识学习系统插件：连 Obsidian（受控读写/摄入/检索）+ 学习闭环（每日一练/追问）。Complete DSH plugin bundle.",
   "scripts": {
