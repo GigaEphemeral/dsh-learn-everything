@@ -110,7 +110,7 @@ npm install
 npm pack        # prepack 自动执行 build + build:client，产物 dsh-learn-everything-<version>.tgz
 # 安装到 DSH（完整包安装，不依赖源码链接）
 cd ~/sourceCodeDSH/deepseek-harness
-dsh plugin --profile test add file:/<your_abs_path>/dsh-learn-everything-0.1.0.tgz
+dsh plugin --profile test add file:/<your_abs_path>/dsh-learn-everything-0.1.2.tgz
 ```
 
 ### 卸载

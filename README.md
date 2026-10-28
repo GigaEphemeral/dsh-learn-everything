@@ -114,7 +114,7 @@ npm install
 npm pack        # prepack runs build + build:client automatically; output dsh-learn-everything-<version>.tgz
 # Install into DSH as a complete package (no source-link dependency)
 cd ~/sourceCodeDSH/deepseek-harness
-dsh plugin --profile test add file:/<your_abs_path>/dsh-learn-everything-0.1.0.tgz
+dsh plugin --profile test add file:/<your_abs_path>/dsh-learn-everything-0.1.2.tgz
 ```
 
 ### uninstall
